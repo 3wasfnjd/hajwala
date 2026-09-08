@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
+import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
+import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
-import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
+import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS, GRID_SCALE } from './Track.js';
 import { updateRaceAIDrivers, updateFreeRoamAIDrivers } from './AIController.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
@@ -15,16 +17,15 @@ import { createFlag, createSaudiFlagDataUrl } from './Flag.js';
 import { LapTimer } from './LapTimer.js';
 import { ColorMapGLTFLoader } from './Loader.js';
 import { ARManager } from './ARManager.js';
+import { PlaceableObject } from './PlaceableObject.js';
+import { MultiplayerRoom } from './Multiplayer.js';
 
 
-const renderer = new THREE.WebGLRenderer( { alpha: true } );
+const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true, outputBufferType: THREE.HalfFloatType } );
 renderer.setSize( window.innerWidth, window.innerHeight );
-// Capped at 1.5 (not the raw devicePixelRatio, which hits 3+ on many phones/
-// tablets) — every render-cost-scaling-with-pixel-count effect (bloom,
-// lighting, post-processing) otherwise renders several times more pixels
-// than the screen can even show, which is exactly what was showing up as
-// low-end-mobile stutter.
-renderer.setPixelRatio( Math.min( window.devicePixelRatio, 1.5 ) );
+renderer.setPixelRatio( window.devicePixelRatio );
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // softer shadow edges than the default PCFShadowMap
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.xr.enabled = true; // required so main.js can offer AR MODE; NORMAL mode is unaffected
@@ -57,6 +58,11 @@ scene.fog = new THREE.Fog( 0xadb2ba, 30, 55 );
 
 const dirLight = new THREE.DirectionalLight( 0xffffff, 3 );
 dirLight.position.set( 11.4, 15, -5.3 );
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.setScalar( 4096 );
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 60;
+dirLight.shadow.radius = 4;
 scene.add( dirLight );
 
 const hemiLight = new THREE.HemisphereLight( 0xc8d8e8, 0x7a8a5a, 2 );
@@ -608,6 +614,44 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu .hw-footer-text a:hover { text-decoration: underline; }
 			#hajwalah-menu .hw-footer-text span { margin: 0 6px; color: rgba(255,255,255,0.4); }
 
+			#hajwalah-menu .hw-mp-entry-btn {
+				width: 100%; margin-top: 2px; padding: 13px 10px; text-align: center;
+				box-shadow: 0 0 0 1px rgba(91,140,255,0.3) inset;
+			}
+			#hajwalah-menu .hw-mp-entry-btn .hw-m-label { font-size: 14.5px; }
+			#hajwalah-menu .hw-step-mp .hw-mp-choice { display: flex; gap: 2px; }
+			#hajwalah-menu .hw-step-mp .hw-mp-choice .hw-mode-card { flex: 1; padding: 18px 8px; }
+			#hajwalah-menu .hw-mp-status {
+				text-align: center; color: #cfc9e0; font-size: 13px; padding: 16px 10px 4px; line-height: 1.6;
+			}
+			#hajwalah-menu .hw-mp-code-display {
+				font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #fff; margin: 10px 0;
+				background: linear-gradient(90deg, #8B5FBF 0%, #5B8CFF 50%, #4FD8E8 100%);
+				-webkit-background-clip: text; background-clip: text; color: transparent;
+			}
+			#hajwalah-menu .hw-mp-code-input {
+				width: 160px; text-align: center; font-size: 24px; letter-spacing: 8px; padding: 11px;
+				border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06);
+				color: #fff; text-transform: uppercase; display: block; margin: 12px auto; outline: none;
+			}
+			#hajwalah-menu .hw-mp-code-input:focus { border-color: rgba(91,140,255,0.6); }
+			#hajwalah-menu .hw-mp-confirm-btn {
+				display: block; margin: 0 auto; padding: 11px 30px; border: none; border-radius: 999px;
+				background: linear-gradient(90deg, #8B5FBF, #5B8CFF); color: #fff; font-size: 14.5px;
+				font-weight: 600; cursor: pointer;
+			}
+			#hajwalah-menu .hw-mp-copy-btn {
+				display: inline-block; margin-top: 4px; padding: 7px 18px; border: 1px solid rgba(255,255,255,0.2);
+				border-radius: 999px; background: rgba(255,255,255,0.06); color: #cfc9e0; font-size: 12px; cursor: pointer;
+			}
+			#hajwalah-menu .hw-mp-spinner {
+				width: 26px; height: 26px; margin: 6px auto 2px; border-radius: 50%;
+				border: 3px solid rgba(255,255,255,0.15); border-top-color: #5B8CFF;
+				animation: hw-mp-spin 0.8s linear infinite;
+			}
+			@keyframes hw-mp-spin { to { transform: rotate(360deg); } }
+			#hajwalah-menu .hw-mp-error { color: #ff8a8a; }
+
 			#hw-name-popup-overlay {
 				position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
 				background: rgba(5,5,10,0.75); font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 24px 16px;
@@ -689,6 +733,25 @@ function createModeMenu( { arAvailable } ) {
 								<div class="hw-m-sub">لمس أو كيبورد</div>
 							</button>
 						</div>
+						<button type="button" class="hw-mode-card hw-mp-entry-btn">
+							<div class="hw-m-label">👥 العب مع صديق</div>
+							<div class="hw-m-sub">غرفة لشخصين — إنشاء أو دخول بكود</div>
+						</button>
+					</div>
+
+					<div class="hw-step hw-step-mp hidden">
+						<div class="hw-mp-choice">
+							<button type="button" class="hw-mode-card hw-mp-create-btn">
+								<div class="hw-m-label">🆕 إنشاء غرفة</div>
+								<div class="hw-m-sub">وأنت المضيف</div>
+							</button>
+							<button type="button" class="hw-mode-card hw-mp-join-btn">
+								<div class="hw-m-label">🔑 دخول لغرفة</div>
+								<div class="hw-m-sub">بكود صديقك</div>
+							</button>
+						</div>
+						<div class="hw-mp-status"></div>
+						<a href="#" class="hw-back-link hw-back-link-mp">‹ رجوع</a>
 					</div>
 
 					<div class="hw-step hw-step-web hidden">
@@ -883,6 +946,196 @@ function createModeMenu( { arAvailable } ) {
 
 		webTrackBtn.addEventListener( 'click', () => chooseWeb( false ) );
 		webFreeBtn.addEventListener( 'click', () => chooseWeb( true ) );
+
+		// ─── لاعبان اثنان (2P) — غرفة عبر WebRTC/PeerJS، بدون خادم خاص ───
+		// شاشة منفصلة (hw-step-mp): إنشاء غرفة (يولّد كود 5 أحرف وينتظر
+		// الضيف) أو دخول غرفة (يدخل كود صديقه). بمجرد نجاح الاتصال، تبدأ
+		// اللعبة مباشرة في وضع "المضمار" (multiplayer race) — انظر
+		// startMultiplayerRace() ومعالجتها في startNormalMode().
+		const mpEntryBtn = menu.querySelector( '.hw-mp-entry-btn' );
+		const stepMp = menu.querySelector( '.hw-step-mp' );
+		const mpCreateBtn = menu.querySelector( '.hw-mp-create-btn' );
+		const mpJoinBtn = menu.querySelector( '.hw-mp-join-btn' );
+		const mpStatus = menu.querySelector( '.hw-mp-status' );
+		const backLinkMp = menu.querySelector( '.hw-back-link-mp' );
+
+		let activeRoom = null; // الغرفة الحالية قيد الإنشاء/الاتصال، لتنظيفها عند الرجوع
+
+		function cleanupActiveRoom() {
+
+			if ( activeRoom ) { activeRoom.close(); activeRoom = null; }
+
+		}
+
+		function resetMpScreen() {
+
+			cleanupActiveRoom();
+			mpStatus.innerHTML = '';
+			mpCreateBtn.disabled = false;
+			mpJoinBtn.disabled = false;
+			mpCreateBtn.style.display = '';
+			mpJoinBtn.style.display = '';
+
+		}
+
+		mpEntryBtn.addEventListener( 'click', () => {
+
+			resetMpScreen();
+			stepTop.classList.add( 'hidden' );
+			stepMp.classList.remove( 'hidden' );
+
+		} );
+
+		backLinkMp.addEventListener( 'click', ( e ) => {
+
+			e.preventDefault();
+			resetMpScreen();
+			stepMp.classList.add( 'hidden' );
+			stepTop.classList.remove( 'hidden' );
+
+		} );
+
+		function startMultiplayerRace( room ) {
+
+			requestFullscreenSafe();
+			startBgMusic();
+			menu.remove();
+			resolve( {
+				choice: 'normal', customText: customTextValue.trim(), freeRoam: false,
+				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl,
+				multiplayer: room,
+			} );
+
+		}
+
+		function showMpWaiting( code ) {
+
+			mpCreateBtn.style.display = 'none';
+			mpJoinBtn.style.display = 'none';
+			mpStatus.innerHTML = `
+				<div>كود الغرفة — أرسله لصديقك</div>
+				<div class="hw-mp-code-display">${ code }</div>
+				<button type="button" class="hw-mp-copy-btn">نسخ الكود</button>
+				<div class="hw-mp-spinner"></div>
+				<div>بانتظار انضمام صديقك...</div>
+			`;
+
+			mpStatus.querySelector( '.hw-mp-copy-btn' ).addEventListener( 'click', ( ev ) => {
+
+				ev.preventDefault();
+				navigator.clipboard?.writeText( code ).then( () => {
+
+					const btn = mpStatus.querySelector( '.hw-mp-copy-btn' );
+					if ( btn ) btn.textContent = 'تم النسخ ✓';
+
+				} ).catch( () => {} );
+
+			} );
+
+		}
+
+		function showMpError( message ) {
+
+			mpCreateBtn.style.display = '';
+			mpJoinBtn.style.display = '';
+			mpStatus.innerHTML = `<div class="hw-mp-error">${ message }</div>`;
+
+		}
+
+		mpCreateBtn.addEventListener( 'click', async () => {
+
+			cleanupActiveRoom();
+			mpCreateBtn.disabled = true;
+			mpJoinBtn.disabled = true;
+			mpStatus.innerHTML = '<div class="hw-mp-spinner"></div><div>جاري إنشاء الغرفة...</div>';
+
+			const room = new MultiplayerRoom();
+			activeRoom = room;
+
+			try {
+
+				const code = await room.createRoom();
+				if ( activeRoom !== room ) return; // تم الإلغاء (رجوع) قبل الاكتمال
+				showMpWaiting( code );
+
+				room.onConnected = () => {
+
+					if ( activeRoom !== room ) return;
+					activeRoom = null; // لا تُغلق عند تنظيف الشاشة — اللعبة بدأت
+					startMultiplayerRace( room );
+
+				};
+
+				room.onDisconnected = () => {
+
+					if ( activeRoom !== room ) return;
+					showMpError( 'انقطع الاتصال بصديقك. جرّب إنشاء غرفة جديدة.' );
+
+				};
+
+			} catch ( e ) {
+
+				console.error( '[Multiplayer] createRoom failed:', e );
+				if ( activeRoom === room ) showMpError( 'تعذّر إنشاء الغرفة. تأكد من اتصال الإنترنت وحاول مرة ثانية.' );
+
+			}
+
+		} );
+
+		mpJoinBtn.addEventListener( 'click', () => {
+
+			mpCreateBtn.style.display = 'none';
+			mpJoinBtn.style.display = 'none';
+			mpStatus.innerHTML = `
+				<div>أدخل كود الغرفة من صديقك</div>
+				<input type="text" maxlength="5" placeholder="XXXXX" class="hw-mp-code-input" autocomplete="off" autocapitalize="characters" />
+				<button type="button" class="hw-mp-confirm-btn">دخول</button>
+			`;
+
+			const input = mpStatus.querySelector( '.hw-mp-code-input' );
+			const confirmBtn = mpStatus.querySelector( '.hw-mp-confirm-btn' );
+			input.focus();
+
+			input.addEventListener( 'input', () => {
+
+				input.value = input.value.toUpperCase().replace( /[^A-Z0-9]/g, '' );
+
+			} );
+
+			input.addEventListener( 'keydown', ( ev ) => { if ( ev.key === 'Enter' ) confirmBtn.click(); } );
+
+			confirmBtn.addEventListener( 'click', async () => {
+
+				const code = input.value.trim();
+				if ( code.length < 3 ) return;
+
+				cleanupActiveRoom();
+				mpStatus.innerHTML = '<div class="hw-mp-spinner"></div><div>جاري الاتصال بالغرفة...</div>';
+
+				const room = new MultiplayerRoom();
+				activeRoom = room;
+
+				try {
+
+					await room.joinRoom( code );
+					if ( activeRoom !== room ) return;
+					activeRoom = null; // اللعبة بدأت
+					startMultiplayerRace( room );
+
+				} catch ( e ) {
+
+					console.error( '[Multiplayer] joinRoom failed:', e );
+					if ( activeRoom === room ) {
+
+						showMpError( 'تعذّر الاتصال — تأكد من الكود وأن صديقك أنشأ الغرفة، ثم حاول مرة ثانية.' );
+
+					}
+
+				}
+
+			} );
+
+		} );
 
 		// AR now goes straight into the session — which of the three AR
 		// experiences (room-drive / floating track / floating arena) is
@@ -1112,8 +1365,7 @@ function showControlsModal() {
 				[ 'سحب', 'قيادة' ],
 				[ '💡 ⚠️', 'أضواء / طوارئ' ],
 				[ '🔆 (مسّك)', 'إضاءة عالية' ],
-				[ '⛶', 'ملء الشاشة' ],
-				[ '🔊', 'إيقاف/تشغيل الموسيقى' ],
+				[ '✋ (مسّك)', 'فرملة يد' ],
 			]
 		},
 		{
@@ -1132,8 +1384,7 @@ function showControlsModal() {
 				[ 'A يمين', 'طوارئ' ],
 				[ 'B يمين (مسّك)', 'إضاءة عالية' ],
 				[ 'قبضة يسار (مسّك)', 'بوق' ],
-				[ 'X يسار (مسّك)', 'فرملة يد' ],
-				[ 'Y يسار', 'كتم/تشغيل الموسيقى' ],
+				[ 'ضغط عصا يسار (مسّك)', 'فرملة يد' ],
 			]
 		},
 	];
@@ -1223,6 +1474,27 @@ function createAsphaltTexture() {
 // points scattered across the open paved area, loosely evoking street
 // lane markings (useful even with the barrier/stand dressing, since the
 // middle of a large arena can still feel empty without them).
+function createLaneMarkingsTexture() {
+
+	const size = 256;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+	ctx.lineWidth = 3;
+	ctx.setLineDash( [ 14, 14 ] );
+	ctx.beginPath();
+	ctx.moveTo( size / 2, 0 );
+	ctx.lineTo( size / 2, size );
+	ctx.moveTo( 0, size / 2 );
+	ctx.lineTo( size, size / 2 );
+	ctx.stroke();
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	return texture;
+
+}
 
 function createSandTexture() {
 
@@ -1427,6 +1699,47 @@ function createTrackEdgeTexture( worldSizeX, worldSizeZ, halfX, halfZ ) {
 
 }
 
+function createCrowdTexture() {
+
+	const w = 256, h = 64;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+	ctx.fillStyle = '#1c1f26';
+	ctx.fillRect( 0, 0, w, h );
+
+	const colors = [ '#e2725b', '#f2c230', '#4CAF6D', '#5B8CFF', '#f4f4f4', '#8B5FBF', '#D9534F' ];
+	for ( let y = 6; y < h; y += 9 ) {
+
+		const rowOffset = ( Math.round( y / 9 ) % 2 === 0 ) ? 4 : 8.5;
+		for ( let x = rowOffset; x < w; x += 8.5 ) {
+
+			ctx.fillStyle = colors[ Math.floor( Math.random() * colors.length ) ];
+			ctx.beginPath();
+			ctx.arc( x, y, 2.5, 0, Math.PI * 2 );
+			ctx.fill();
+
+		}
+
+	}
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+	return texture;
+
+}
+
+// Builds a 3-tier stepped grandstand (like Riyadh's Reem circuit) along
+// one perimeter wall. axis 'x' = wall runs along X (north/south walls,
+// fixedCoord is their Z); axis 'z' = wall runs along Z (east/west walls,
+// fixedCoord is their X). direction (+1/-1) is which way it extends
+// away from the track.
+// Real asset (models/barrier-segment.glb, 8 units long) placed in a
+// closed loop around a square footprint — shared between the AR drift
+// pad and (now) the web free-roam arena, so both use the same visual
+// barrier style as the actual race track instead of a separate
+// grandstand design.
 // Same red/white striped barrier the actual race track uses
 // (buildBarrierSegment, runtime-built geometry) placed in a closed loop
 // around a square footprint — shared between the web free-roam arena
@@ -1467,6 +1780,42 @@ function buildBarrierLoop( parentGroup, world, halfX, halfZ = halfX, yOffset = 0
 		}
 
 	}
+
+}
+
+function buildGrandstandWall( scene, axis, length, fixedCoord, baseDistance, direction ) {
+
+	// Many small rows (realistic stadium riser height, ~0.45m per step)
+	// instead of a few huge tiers — each individual step should read as
+	// smaller than the car, not towering over it.
+	const rowHeight = 0.45, rowDepth = 1.3, numRows = 6;
+	const tiers = [];
+	for ( let i = 0; i < numRows; i ++ ) tiers.push( { h: rowHeight * ( i + 1 ), d: rowDepth } );
+	let offset = 0;
+
+	tiers.forEach( ( t ) => {
+
+		const centerDist = baseDistance + offset + t.d / 2;
+		const sizeX = axis === 'x' ? length : t.d;
+		const sizeZ = axis === 'x' ? t.d : length;
+
+		const texture = createCrowdTexture();
+		texture.repeat.set( axis === 'x' ? length / 4 : 1,
+			axis === 'x' ? 1 : length / 4 );
+
+		const material = new THREE.MeshStandardMaterial( { map: texture, roughness: 1, metalness: 0 } );
+		const mesh = new THREE.Mesh( new THREE.BoxGeometry( sizeX, t.h, sizeZ ), material );
+		mesh.position.set(
+			axis === 'x' ? 0 : fixedCoord + direction * centerDist,
+			t.h / 2,
+			axis === 'x' ? fixedCoord + direction * centerDist : 0
+		);
+		mesh.receiveShadow = true;
+		scene.add( mesh );
+
+		offset += t.d;
+
+	} );
 
 }
 
@@ -1514,6 +1863,7 @@ function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
 	);
 	pole.position.set( x, poleHeight / 2, z );
+	pole.castShadow = true;
 	scene.add( pole );
 
 	// Small lamp head cluster at the top, tilted toward the track.
@@ -1538,6 +1888,7 @@ function buildFloodlightPole( scene, x, z, aimTarget, world = null ) {
 	const light = new THREE.SpotLight( 0xffdba0, 45, 70, THREE.MathUtils.degToRad( 42 ), 0.4, 1.0 );
 	light.position.set( x, poleHeight - 0.1, z );
 	light.target.position.set( aimTarget.x, 0, aimTarget.z );
+	light.castShadow = false; // 4 shadow-casting spotlights would be very expensive; dirLight still casts the car's shadow
 	scene.add( light );
 	scene.add( light.target );
 
@@ -1576,6 +1927,8 @@ function buildBarrierSegment( scene, world, x, z, length, axis, yOffset = 0, hei
 		new THREE.MeshStandardMaterial( { color: 0x9a9a92, roughness: 0.95, metalness: 0 } )
 	);
 	body.position.set( x, h / 2 + yOffset, z );
+	body.castShadow = true;
+	body.receiveShadow = true;
 	scene.add( body );
 
 	const stripe = new THREE.Mesh(
@@ -1612,6 +1965,8 @@ function buildTireStack( scene, x, z, count ) {
 		const tire = new THREE.Mesh( new THREE.TorusGeometry( 0.35, 0.13, 10, 20 ), tireMat );
 		tire.rotation.x = Math.PI / 2;
 		tire.position.set( x + ( Math.random() - 0.5 ) * 0.04, y, z + ( Math.random() - 0.5 ) * 0.04 );
+		tire.castShadow = true;
+		tire.receiveShadow = true;
 		scene.add( tire );
 		y += 0.23;
 
@@ -1633,6 +1988,7 @@ function buildEntranceGate( scene, x, z, axis ) {
 		const pz = axis === 'x' ? z : z + side * gap / 2;
 		const pillar = new THREE.Mesh( new THREE.BoxGeometry( pillarSize, pillarH, pillarSize ), mat );
 		pillar.position.set( px, pillarH / 2, pz );
+		pillar.castShadow = true;
 		scene.add( pillar );
 
 	}
@@ -1642,6 +1998,7 @@ function buildEntranceGate( scene, x, z, axis ) {
 		mat
 	);
 	beam.position.set( x, pillarH + 0.2, z );
+	beam.castShadow = true;
 	scene.add( beam );
 
 }
@@ -1696,6 +2053,7 @@ function buildFloodlightPoleVisual( parent, x, z, aimTarget, poleHeight = 9, sca
 		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.7, metalness: 0.4 } )
 	);
 	pole.position.set( x, poleHeight / 2, z );
+	pole.castShadow = true;
 	parent.add( pole );
 
 	const headGroup = new THREE.Group();
@@ -1782,6 +2140,11 @@ function scatterCornerDecor( parent, models, halfX, halfZ = halfX, truckKeys, wo
 					const carZ = cz - sz * jitterZ * 1.8 + ( Math.random() - 0.5 ) * jitterZ;
 					car.position.set( carX, 0, carZ );
 					car.rotation.y = Math.random() * Math.PI * 2;
+					car.traverse( ( c ) => {
+
+						if ( c.isMesh ) { c.castShadow = true; c.receiveShadow = true; }
+
+					} );
 					parent.add( car );
 					decor.push( { type: 'car', x: carX, z: carZ, rotationY: car.rotation.y } );
 
@@ -1899,52 +2262,26 @@ function createTextTexture( text ) {
 // from the now-verified runtime formula), and the Camry/Camaro tables are
 // separately calibrated against those models' own measured proportions.
 // Simpler, and nothing left to break at runtime.
-// ✏️ RETUNING KNOB — headlightLens/taillight/hazards' y and flag's y each
-// nudged up +0.45 total net (0.03, 0.03, 0.06, 0.12, 0.36, then back down
-// 0.15 — six passes) per feedback that the front lighting, hazards, and
-// flag were all sitting a bit low, then a touch too high. headlightSpot's
-// y raised/lowered by the same amount to keep the actual light source
-// aligned with the visible lens; headlightSpotTarget (far-ahead aim point)
-// and reverseLight are unaffected — same reasoning as the z-only
-// headlightSpot nudge below.
-// headlightLens' own z was pulled forward +0.1, then per feedback that it
-// no longer sat flush against the model's own headlight-lens bump, pulled
-// back -0.05, then -0.03 more (net +0.02 from the original). Its y was
-// also lowered -0.03 in this same pass. The front hazard PAIR's z/y are
-// deliberately left at their prior values below (per explicit feedback:
-// hazards/flag are fine, don't touch them) — hazards and headlightLens no
-// longer share identical y/z as a result, unlike every other coordinate.
-// headlightSpot's y is kept in sync with headlightLens' own y (same
-// reasoning as the original total-lift passes above); its z is untouched.
-// ✏️ windshieldDecal/tailgateDecal (the custom name text) and reverseLight
-// y raised to match headlightLens' own y, then lowered -0.03, then -0.03
-// again per follow-up feedback — same for all 3 vehicles below, each
-// matched to its own headlightLens.y.
 const TRUCK_LAYOUT = {
-	headlightLens: [ 0.3975, 0.719, 1.42 ],
-	taillight: [ 0.3975, 0.879, -1.33 ],
-	reverseLight: [ 0.24975, 0.659, -1.3398 ],
-	flag: [ -0.6, 0.593, -1.358 ],
-	windshieldDecal: [ 0, 0.659, 0.574 ],
-	tailgateDecal: [ 0, 0.659, -1.4 ],
-	// headlightSpot's z (how far past headlightLens the actual light
-	// SOURCE floats, in open air above the roof — see addVehicleLights())
-	// pulled in per feedback that the lighting read as sitting too far
-	// forward of the car. Only z moves; y (height above the roof — what
-	// actually keeps the beam from clipping/overexposing the car's own
-	// hood) and headlightSpotTarget (aim point far ahead, unaffected by
-	// this small a shift in the source) are untouched.
-	// x corrected to match headlightLens.x (0.3975) — it had been
-	// carrying flag.x's magnitude (0.6, from the opposite rear corner of
-	// the car, unrelated to the headlights) instead, so the actual light
-	// source sat noticeably outboard of the visible lens it's supposed to
-	// shine from. headlightSpotTarget.x moved the same amount so the beam
-	// still aims straight ahead rather than on an inward slant.
-	headlightSpot: [ 0.3975, 2.5195, 1.7612 ],
-	headlightSpotTarget: [ 0.3975, 0.2002, 18.004 ],
+	headlightLens: [ 0.3975, 0.299, 1.4 ],
+	taillight: [ 0.3975, 0.429, -1.33 ],
+	reverseLight: [ 0.24975, 0.429, -1.3398 ],
+	flag: [ -0.6, 0.143, -1.358 ],
+	windshieldDecal: [ 0, 0.663, 0.574 ],
+	tailgateDecal: [ 0, 0.286, -1.4 ],
+	// headlightSpot (the light SOURCE, floating in open air above the roof
+	// — see addVehicleLights()) is back at its original position; an
+	// earlier attempt to pull its z in wasn't what fixed the reported
+	// problem, so it's reverted. headlightSpotTarget's z IS pulled way
+	// in, though — that's what actually decides where the visible lit
+	// patch lands on the ground, which was the real complaint (the old
+	// value made the beam meet the ground ~18-33 world units ahead,
+	// visibly detached from the car — confirmed on-device).
+	headlightSpot: [ 0.6, 2.0995, 2.002 ],
+	headlightSpotTarget: [ 0.6, 0.2002, 10.7612 ],
 	hazards: [
-		[ -0.3975, 0.749, 1.5 ], [ 0.3975, 0.749, 1.5 ],
-		[ -0.3975, 0.879, -1.33 ], [ 0.3975, 0.879, -1.33 ],
+		[ -0.3975, 0.299, 1.4 ], [ 0.3975, 0.299, 1.4 ],
+		[ -0.3975, 0.429, -1.33 ], [ 0.3975, 0.429, -1.33 ],
 	],
 };
 
@@ -1959,82 +2296,37 @@ const TRUCK_LAYOUT = {
 // reverseLight keeps the same x/y/z ratio to taillight the truck's own
 // numbers already use (×0.628 / ×1 / ×1.0074) — there's no dedicated
 // reverse-light graphic on either model to sample directly.
-// ✏️ Same +0.45 total net lift and headlightLens y/z adjustment as
-// TRUCK_LAYOUT above — see its comment for why.
-// ✏️ Checked/adjusted per explicit request: hazards (all 4 corners) +
-// taillight lowered -0.24 so there's a deliberate gap with headlights
-// sitting above and hazards below — same "headlights up, hazards down"
-// separation confirmed working for Camaro, this vehicle just hadn't
-// gotten it yet (it was still sharing Truck's numbers up to this point).
-// Flag left as-is — nothing specific was flagged wrong with it.
 const CAMRY_LAYOUT = {
-	headlightLens: [ 0.6535, 0.9398, 2.234 ],
-	taillight: [ 0.7639, 0.9848, -2.3324 ],
-	reverseLight: [ 0.4797, 0.8798, -2.3496 ],
-	flag: [ -0.8744, 0.4842, -2.5813 ],
-	// windshieldDecal/tailgateDecal/reverseLight y raised to match
-	// headlightLens' own y, then lowered -0.03, then -0.03 again — see the
-	// identical change in TRUCK_LAYOUT above for why.
-	windshieldDecal: [ 0, 0.8798, 1.0567 ],
-	tailgateDecal: [ 0, 0.8798, -2.6611 ],
-	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
-	// The Camry's old z carried a disproportionately large forward offset
-	// (≈66% of its own lens-z, vs ≈43-49% for the truck/Camaro) — a relic
-	// of the same naive truck-fraction scaling that originally put its
-	// headlightLens in the wrong spot too — so it's pulled in further
-	// (to ≈45% of the old offset, vs 60% for the other two) to land at a
-	// comparable proportion.
-	// x corrected to headlightLens.x (0.6535) — see the identical fix in
-	// TRUCK_LAYOUT above for why (it had been flag.x's 0.8744 instead).
-	headlightSpot: [ 0.6535, 2.8218, 2.8763 ],
-	headlightSpotTarget: [ 0.6535, 0.1034, 33.1454 ],
+	headlightLens: [ 0.6535, 0.5198, 2.214 ],
+	taillight: [ 0.7639, 0.7748, -2.3324 ],
+	reverseLight: [ 0.4797, 0.7748, -2.3496 ],
+	flag: [ -0.8744, 0.0342, -2.5813 ],
+	windshieldDecal: [ 0, 0.6635, 1.0567 ],
+	tailgateDecal: [ 0, 0.2073, -2.6611 ],
+	// headlightSpot back at its original position — see TRUCK_LAYOUT's
+	// comment. headlightSpotTarget's z IS pulled in (the actual fix).
+	headlightSpot: [ 0.8744, 2.4018, 3.6857 ],
+	headlightSpotTarget: [ 0.8744, 0.1034, 11.8763 ],
 	hazards: [
-		[ -0.6535, 0.7298, 2.314 ], [ 0.6535, 0.7298, 2.314 ],
-		[ -0.7639, 0.9848, -2.3324 ], [ 0.7639, 0.9848, -2.3324 ],
+		[ -0.6535, 0.5198, 2.214 ], [ 0.6535, 0.5198, 2.214 ],
+		[ -0.7639, 0.7748, -2.3324 ], [ 0.7639, 0.7748, -2.3324 ],
 	],
 };
 
-// ✏️ Same +0.45 total net lift and headlightLens y/z adjustment as
-// TRUCK_LAYOUT above — see its comment for why. Camaro-ONLY from here —
-// Truck/Camry are completely unaffected, this table is fully independent
-// of theirs:
-// - headlightLens/headlightSpot y lowered another -0.24 (double the prior
-//   -0.12 step).
-// - hazards (all 4 corners) lowered -0.48 (double THAT amount) so there's
-//   a clear, deliberate gap with headlights sitting above and hazards
-//   below, per explicit request — previously they sat almost level.
-//   taillight lowered the same -0.48 alongside the rear hazard pair to
-//   keep the two co-located, same reasoning as everywhere else in this
-//   file.
-// - flag pulled forward (z toward the car, +0.1) and lowered (-0.05); per
-//   follow-up feedback the flag is now right, so it's untouched below.
-// - headlightLens' LEFT side only (side===-1 in addVehicleLights, i.e.
-//   headlightLensLeftXOffset below) nudged further left/outward; the
-//   right side is untouched — see addVehicleLights()'s own comment on why
-//   this needed a new asymmetric-offset mechanism instead of the usual
-//   mirrored `sidePos()`. Nudged again -0.03 in the same follow-up pass
-//   that lowered headlightLens/headlightSpot/hazards a bit further, then
-//   -0.03 more in a later pass on its own.
 const CAMARO_LAYOUT = {
-	headlightLens: [ 0.3584, 0.366, 1.3512 ],
-	// Left headlightLens only — see addVehicleLights()'s own comment.
-	headlightLensLeftXOffset: -0.11,
-	taillight: [ 0.3123, 0.2076, -1.5104 ],
-	reverseLight: [ 0.1961, 0.306, -1.5215 ],
-	flag: [ -0.4603, 0.4862, -1.3774 ],
-	// windshieldDecal/tailgateDecal/reverseLight y raised to match
-	// headlightLens' own y, then lowered -0.03, then -0.03 again — see the
-	// identical change in TRUCK_LAYOUT above for why.
-	windshieldDecal: [ 0, 0.306, 0.569 ],
-	tailgateDecal: [ 0, 0.306, -1.5231 ],
-	// headlightSpot's z pulled in — same reasoning as TRUCK_LAYOUT above.
-	// x corrected to headlightLens.x (0.3584) — see the identical fix in
-	// TRUCK_LAYOUT above for why (it had been flag.x's 0.4603 instead).
-	headlightSpot: [ 0.3584, 1.1819, 1.7232 ],
-	headlightSpotTarget: [ 0.3584, 0.1209, 17.8476 ],
+	headlightLens: [ 0.3584, 0.336, 1.3312 ],
+	taillight: [ 0.3123, 0.3876, -1.5104 ],
+	reverseLight: [ 0.1961, 0.3876, -1.5215 ],
+	flag: [ -0.4603, 0.0862, -1.4774 ],
+	windshieldDecal: [ 0, 0.4013, 0.569 ],
+	tailgateDecal: [ 0, 0.1729, -1.5231 ],
+	// headlightSpot back at its original position, headlightSpotTarget's z
+	// pulled in — see TRUCK_LAYOUT's comment.
+	headlightSpot: [ 0.4603, 1.2719, 1.9846 ],
+	headlightSpotTarget: [ 0.4603, 0.1209, 10.7232 ],
 	hazards: [
-		[ -0.3584, 0.156, 1.4312 ], [ 0.3584, 0.156, 1.4312 ],
-		[ -0.3123, 0.2076, -1.5104 ], [ 0.3123, 0.2076, -1.5104 ],
+		[ -0.3584, 0.336, 1.3312 ], [ 0.3584, 0.336, 1.3312 ],
+		[ -0.3123, 0.3876, -1.5104 ], [ 0.3123, 0.3876, -1.5104 ],
 	],
 };
 
@@ -2108,33 +2400,16 @@ function addCustomTextDecals( vehicleGroup, text ) {
 // and near the left edge — matching a real full-size flag planted at the
 // back of the vehicle, leaning up and outward, rather than a small
 // roof-mounted pennant.
-function addVehicleFlag( vehicle, imageUrl ) {
+function addVehicleFlag( vehicleGroup, imageUrl ) {
 
-	const vehicleGroup = vehicle.container;
 	const vehicleModel = vehicleGroup.children[ 0 ];
+	const anchorNode = vehicleModel;
 	const layout = layoutFor( vehicleModel );
-
-	// Anchored to the body pivot, same as addVehicleLights() — see its own
-	// comment on anchorNode/_bodyInvMatrix for why this has to go through
-	// a proper world-space matrix conversion, not a plain position
-	// subtraction (which put the flag entirely inside the Camry's body —
-	// same root cause as the headlights).
-	const anchorNode = vehicle.bodyNode || vehicleModel;
-	const _bodyInvMatrix = new THREE.Matrix4();
-	if ( vehicle.bodyNode ) {
-
-		vehicleModel.updateMatrixWorld( true );
-		vehicle.bodyNode.updateMatrixWorld( true );
-		_bodyInvMatrix.copy( vehicle.bodyNode.matrixWorld ).invert();
-
-	}
 
 	const flag = createFlag( imageUrl );
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
-	const flagPosition = new THREE.Vector3( ...layout.flag );
-	if ( vehicle.bodyNode ) flagPosition.applyMatrix4( vehicleModel.matrixWorld ).applyMatrix4( _bodyInvMatrix );
-	flag.group.position.copy( flagPosition );
+	flag.group.position.set( ...layout.flag );
 	anchorNode.add( flag.group );
 
 	return flag;
@@ -2156,73 +2431,21 @@ function addVehicleFlag( vehicle, imageUrl ) {
 // there's no gameplay reason for an AI car's hazards to illuminate
 // anything. One player car adding 4 real lights back is negligible
 // by comparison.
-function addVehicleLights( vehicle, realHazards = false ) {
+function addVehicleLights( vehicleGroup, realHazards = false ) {
 
-	const vehicleGroup = vehicle.container;
 	const vehicleModel = vehicleGroup.children[ 0 ];
+	// Anchor to the model's TOP-LEVEL group, not the "body" mesh node
+	// itself. For the original truck models the two are equivalent (body
+	// sits at the model's own origin with no extra transform), so this is
+	// a no-op change for them — but imported models like vehicle-camry.glb
+	// bake their own corrective rotation/scale directly onto the "body"
+	// node (see Vehicle.js's createPivot() for the full story), so a fixed
+	// local offset attached under THAT node didn't land anywhere near the
+	// real headlight/taillight bumps. vehicleModel's own frame doesn't
+	// have that per-node distortion, so the static layout offsets below
+	// line up correctly on every vehicle.
+	const anchorNode = vehicleModel;
 	const layout = layoutFor( vehicleModel );
-
-	// Headlights/hazards/taillights/reverse lights anchor to the body
-	// pivot (vehicle.bodyNode — see Vehicle.js's createPivot()/
-	// updateBody()) instead of vehicleModel directly, so they visually
-	// follow the body's own launch-pitch/lean/suspension-settle animation
-	// instead of staying rigidly fixed while the body tilts underneath
-	// them (reported: the front visibly rises under hard acceleration but
-	// the lighting stayed put, reading as detached from the car). Falls
-	// back to vehicleModel itself for any model with no recognizable
-	// "body" node (bodyNode stays null — see Vehicle.js's init()).
-	//
-	// bodyNode is a child of bodyChild's own immediate parent, which is
-	// NOT necessarily vehicleModel itself — createPivot(bodyChild) inserts
-	// the pivot exactly where bodyChild already lived, and vehicleModel's
-	// traverse() in Vehicle.js's init() finds "body" wherever it sits in
-	// the whole descendant tree, however many levels deep. For Camry
-	// specifically that's several levels down through nodes carrying their
-	// own extra scale (a ~100x centimeters-vs-meters artifact — see
-	// Vehicle.js's own _bodySuspensionSinkLocal comment for the full
-	// story), so bodyNode's local units are NOT the same size as
-	// vehicleModel's own local units there. A first version of this
-	// compensated only by subtracting bodyNode.position (a pure
-	// translation) — correct for Truck/Camaro (no such extra scale, so a
-	// no-op difference from doing it "right"), but on Camry it put every
-	// light/decal/flag position wildly off (reported: entirely inside the
-	// car body, invisible) because a translation-only fix can't correct
-	// for a scale mismatch between the two frames. anchoredPos() below
-	// instead converts properly through world space (vehicleModel's own
-	// matrixWorld out, bodyNode's inverse matrixWorld in), which is
-	// correct regardless of any scale/rotation/nesting differences between
-	// the two frames — not just a Camry-specific patch.
-	const anchorNode = vehicle.bodyNode || vehicleModel;
-	const _bodyInvMatrix = new THREE.Matrix4();
-	if ( vehicle.bodyNode ) {
-
-		vehicleModel.updateMatrixWorld( true );
-		vehicle.bodyNode.updateMatrixWorld( true );
-		_bodyInvMatrix.copy( vehicle.bodyNode.matrixWorld ).invert();
-
-	}
-
-	function anchoredPos( v ) {
-
-		if ( vehicle.bodyNode ) v.applyMatrix4( vehicleModel.matrixWorld ).applyMatrix4( _bodyInvMatrix );
-		return v;
-
-	}
-
-	// Optional per-vehicle asymmetric nudge, LEFT side (side===-1) only —
-	// e.g. CAMARO_LAYOUT's headlightLensLeftXOffset. Every other coordinate
-	// in these layout tables mirrors symmetrically via sidePos()'s own side
-	// multiplier; this is the one deliberate exception, added to nudge just
-	// the driver's-side headlight further outward without moving its
-	// mirror on the right. Applied to both the visible lens and the actual
-	// illuminating spot, so they stay aligned with each other like every
-	// other headlight coordinate in this file.
-	function applyLeftOffset( v, side ) {
-
-		if ( side === -1 && layout.headlightLensLeftXOffset ) v.x += layout.headlightLensLeftXOffset;
-		return v;
-
-	}
 
 	// Headlights: warm-white point lights, lighting up the real room
 	// ahead in AR. Off by default — toggled by the player.
@@ -2260,21 +2483,14 @@ function addVehicleLights( vehicle, realHazards = false ) {
 		const baseDistance = 14;
 		const baseIntensity = 500;
 		const light = new THREE.SpotLight( 0xfff2cc, baseIntensity, baseDistance, Math.PI / 8, 0.35, 2 );
-		const basePosition = anchoredPos( applyLeftOffset( sidePos( layout.headlightSpot, side ), side ) ); // clear above the roof, open air
+		const basePosition = sidePos( layout.headlightSpot, side ); // clear above the roof, open air
 		light.position.copy( basePosition );
 		light.visible = false;
 
-		// The aim target stays under vehicleModel (NOT anchorNode/bodyNode)
-		// on purpose — it's a point far ahead (z in the tens of units), so
-		// even the small rotation bodyNode's own launch-pitch animation
-		// applies would swing it sideways by a wildly amplified arc length
-		// at that distance. Only the light SOURCE needs to move with the
-		// body; letting just that shift the beam's angle relative to a
-		// fixed-ahead aim point is enough to read as "mounted on the car".
 		const target = new THREE.Object3D();
 		const baseTargetPosition = sidePos( layout.headlightSpotTarget, side ); // far ahead, gentle downward slope
 		target.position.copy( baseTargetPosition );
-		vehicleModel.add( target );
+		anchorNode.add( target );
 		light.target = target;
 
 		anchorNode.add( light );
@@ -2292,7 +2508,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	for ( const side of [ -1, 1 ] ) {
 
 		const group = new THREE.Group();
-		const basePosition = anchoredPos( applyLeftOffset( sidePos( layout.headlightLens, side ), side ) );
+		const basePosition = sidePos( layout.headlightLens, side );
 		group.position.copy( basePosition );
 		group.userData.basePosition = basePosition;
 		group.visible = false;
@@ -2329,7 +2545,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 		const baseDistance = 0.9;
 		const baseIntensity = 0.8;
 		const light = new THREE.PointLight( 0xff3b30, baseIntensity, baseDistance, 2 );
-		const basePosition = anchoredPos( sidePos( layout.taillight, side ) );
+		const basePosition = sidePos( layout.taillight, side );
 		light.position.copy( basePosition );
 		anchorNode.add( light );
 		taillights.push( { light, basePosition, baseDistance, baseIntensity } );
@@ -2356,7 +2572,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	const reverseLights = [];
 	for ( const side of [ -1, 1 ] ) {
 
-		const basePosition = anchoredPos( sidePos( layout.reverseLight, side ) );
+		const basePosition = sidePos( layout.reverseLight, side );
 		const group = new THREE.Group();
 		group.position.copy( basePosition );
 		group.rotation.y = Math.PI; // face backward, out through the taillight bump
@@ -2403,7 +2619,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	const hazards = [];
 	for ( const [ x, y, z ] of layout.hazards ) {
 
-		const basePosition = anchoredPos( new THREE.Vector3( x, y, z ) );
+		const basePosition = new THREE.Vector3( x, y, z );
 
 		if ( realHazards ) {
 
@@ -2645,6 +2861,26 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 
 // ─── Race countdown ─────────────────────────────────────────
 
+// TEMPORARY diagnostic helper — flashes a short-lived note in the
+// corner of the screen. Used to get definitive visual proof the AI
+// stuck-recovery watchdog actually fires (console.warn alone isn't
+// visible on a phone). Safe to remove once the AI driving issue is
+// confirmed fixed.
+function flashDebugNote( text ) {
+
+	const el = document.createElement( 'div' );
+	el.textContent = text;
+	el.style.cssText = `
+		position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 80;
+		background: rgba(20,10,30,0.85); color: #fff; padding: 8px 16px; border-radius: 10px;
+		font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; direction: rtl;
+		border: 1px solid rgba(139,95,191,0.5);
+	`;
+	document.body.appendChild( el );
+	setTimeout( () => el.remove(), 2500 );
+
+}
+
 function createCountdownUI() {
 
 	const style = document.createElement( 'style' );
@@ -2839,66 +3075,13 @@ function setupFullscreenToggle() {
 
 }
 
-// Small floating toggle for the background music (bgMusic, started once
-// per session on the first pointerdown/keydown — see startBgMusic() near
-// the top of this file) — NORMAL/web mode only, same corner-button style
-// as setupFullscreenToggle() just above but mirrored to the top-right so
-// the two don't overlap.
-function setupMusicToggle() {
-
-	const style = document.createElement( 'style' );
-	style.textContent = `
-		#hw-music-btn {
-			position: fixed; right: 14px; top: 14px; z-index: 30;
-			width: 46px; height: 46px; border-radius: 50%; border: none; padding: 0;
-			display: flex; align-items: center; justify-content: center;
-			font-size: 19px; color: #fff;
-			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
-			border: 1px solid rgba(139,95,191,0.35);
-			backdrop-filter: blur(6px);
-			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
-			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
-		}
-		#hw-music-btn:active {
-			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
-			transform: scale(0.94);
-		}
-	`;
-	document.head.appendChild( style );
-
-	const btn = document.createElement( 'button' );
-	btn.id = 'hw-music-btn';
-	document.body.appendChild( btn );
-
-	function sync() {
-
-		btn.textContent = bgMusic.muted ? '🔇' : '🔊';
-		btn.title = bgMusic.muted ? 'تشغيل الموسيقى الخلفية' : 'إيقاف الموسيقى الخلفية';
-
-	}
-
-	// Muting (not pausing) keeps bgMusic's own loop/playback position
-	// running, so unmuting resumes instantly in sync rather than
-	// re-triggering the autoplay-unlock dance startBgMusic() guards against.
-	btn.addEventListener( 'pointerdown', ( e ) => {
-
-		e.stopPropagation();
-		bgMusic.muted = ! bgMusic.muted;
-		sync();
-
-	} );
-
-	sync();
-
-}
-
 // ─── Touch controls dock (phones/tablets — no keyboard, no VR hands) ──
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
 
 function setupTouchUI( vehicleLights ) {
 
-	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
+	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false, handbrakeHeld: false };
 
 	const style = document.createElement( 'style' );
 	style.textContent = `
@@ -2939,6 +3122,7 @@ function setupTouchUI( vehicleLights ) {
 	const headlightBtn = makeTapButton( '💡' );
 	const hazardBtn = makeTapButton( '⚠️' );
 	const highBeamBtn = makeTapButton( '🔆' );
+	const handbrakeBtn = makeTapButton( '✋' );
 
 	// Back to the main menu — added alongside the rest of this dock's
 	// buttons per feedback that WEB mode (both track and free-roam, since
@@ -2976,7 +3160,7 @@ function setupTouchUI( vehicleLights ) {
 	// "off" and immediately canceled whatever this button had just
 	// turned on. The frame loop now combines both sources before calling
 	// setHighBeam() once.
-	const touchState = { highBeamHeld: false };
+	const touchState = { highBeamHeld: false, handbrakeHeld: false };
 	highBeamBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
@@ -2994,10 +3178,31 @@ function setupTouchUI( vehicleLights ) {
 
 	} );
 
+	// Handbrake — same hold pattern as high beam above (on keyboard it's
+	// KeyB, checked every frame while held; there was previously no touch
+	// equivalent at all, so a touch-only device simply couldn't handbrake).
+	handbrakeBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		touchState.handbrakeHeld = true;
+
+	} );
+	[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
+
+		handbrakeBtn.addEventListener( evt, ( e ) => {
+
+			e.stopPropagation();
+			touchState.handbrakeHeld = false;
+
+		} );
+
+	} );
+
 	wrap.appendChild( homeBtn );
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
+	wrap.appendChild( handbrakeBtn );
 	document.body.appendChild( wrap );
 
 	return touchState;
@@ -3366,14 +3571,16 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 
 	return aiDrivers.map( ( d, i ) => {
 
-		const lights = addVehicleLights( d.vehicle );
+		const group = d.vehicle.container;
+
+		const lights = addVehicleLights( group );
 		lights.hazardsOn = true;
 		lights.headlights.forEach( ( h ) => { h.light.removeFromParent(); h.target.removeFromParent(); } );
 		lights.headlightLenses.forEach( ( lens ) => lens.removeFromParent() );
 		lights.taillights.forEach( ( t ) => t.light.removeFromParent() );
 		lights.reverseLights.forEach( ( r ) => r.group.removeFromParent() );
 
-		const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
+		const flag = addVehicleFlag( group, aiFlagUrl );
 		const driftMarks = new DriftMarks( scene, idPrefix + '-' + i, 1, AI_DRIFT_MARK_LIFETIME );
 
 		return { lights, flag, driftMarks };
@@ -3384,12 +3591,46 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
+// إشعار بسيط يظهر أعلى الشاشة عند انقطاع اتصال اللاعب الآخر — لا يوقف
+// اللعبة (السيارة البعيدة تجمد في آخر موضع معروف)، فقط يُعلم اللاعب.
+function showMultiplayerDisconnectNotice() {
+
+	if ( document.getElementById( 'hw-mp-disconnect-notice' ) ) return;
+
+	const el = document.createElement( 'div' );
+	el.id = 'hw-mp-disconnect-notice';
+	el.dir = 'rtl';
+	el.textContent = '⚠️ انقطع الاتصال بصديقك';
+	el.style.cssText = `
+		position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 40;
+		background: rgba(180,40,40,0.9); color: #fff; padding: 9px 18px; border-radius: 10px;
+		font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px;
+		border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+	`;
+	document.body.appendChild( el );
+
+}
+
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, multiplayer } ) {
+
+	// وضع لاعبين اثنين (v1): مضمار افتراضي ثابت فقط — بدون free-roam
+	// وبدون مضمار مخصص (?map=) — لضمان أن الطرفين يبنيان بالضبط نفس
+	// تخطيط المضمار محليًا دون تبادل أي بيانات إضافية عنه. كلا اللاعبين
+	// يدخلان هذه الدالة بنفس القيم دائمًا في هذا الوضع.
+	if ( multiplayer ) {
+
+		freeRoam = false;
+		customCells = null;
+		mapParam = null;
+		spawn = computeSpawnPosition( null );
+
+	}
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
 	let trackPath = null, aiDrivers = [], aiExtras = [];
 	let freeRoamHalf = 0;
+	let multiplayerRemoteSlot = null;
 
 	if ( freeRoam ) {
 
@@ -3419,6 +3660,13 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		const roadHalf = groundSize / 2;
 
+		const shadowExtent = roadHalf;
+		dirLight.shadow.camera.left = - shadowExtent;
+		dirLight.shadow.camera.right = shadowExtent;
+		dirLight.shadow.camera.top = shadowExtent;
+		dirLight.shadow.camera.bottom = - shadowExtent;
+		dirLight.shadow.camera.updateProjectionMatrix();
+
 		scene.fog.near = groundSize * 0.5;
 		scene.fog.far = groundSize * 1.1;
 
@@ -3440,6 +3688,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		);
 		groundMesh.rotation.x = - Math.PI / 2;
 		groundMesh.position.set( 0, - 0.12, 0 );
+		groundMesh.receiveShadow = true;
 		scene.add( groundMesh );
 
 		// Solid perimeter walls so the car bounces off the edge instead of
@@ -3501,6 +3750,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		);
 		sandMesh.rotation.x = - Math.PI / 2;
 		sandMesh.position.set( 0, - 0.121, 0 );
+		sandMesh.receiveShadow = true;
 		scene.add( sandMesh );
 
 		// Burnout circles + drift trails, baked once across the whole
@@ -3584,17 +3834,36 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	} else {
 
-		// Compute track bounds and size physics to fit
+		// Compute track bounds and size physics/shadows to fit
 		const bounds = computeTrackBounds( customCells );
 		const hw = bounds.halfWidth;
 		const hd = bounds.halfDepth;
 		const groundSize = Math.max( hw, hd ) * 2 + 20;
+
+		const shadowExtent = Math.max( hw, hd ) + 10;
+		dirLight.shadow.camera.left = - shadowExtent;
+		dirLight.shadow.camera.right = shadowExtent;
+		dirLight.shadow.camera.top = shadowExtent;
+		dirLight.shadow.camera.bottom = - shadowExtent;
+		dirLight.shadow.camera.updateProjectionMatrix();
 
 		scene.fog.near = groundSize * 0.4;
 		scene.fog.far = groundSize * 0.8;
 
 		const { npcConfigs } = buildTrack( scene, models, customCells );
 		trackPath = computeTrackPath( customCells );
+
+		// Probes
+		const probeHeight = 6;
+		const probes = new LightProbeGrid(
+			hw * 2, probeHeight, hd * 2,
+			Math.max( 4, Math.round( hw / 4 ) ),
+			2,
+			Math.max( 4, Math.round( hd / 4 ) ),
+		);
+		probes.position.set( bounds.centerX, probeHeight / 2, bounds.centerZ );
+		probes.bake( renderer, scene, { cubemapSize: 32, near: 0.1, far: groundSize } );
+		scene.add( probes );
 
 		buildWallColliders( world, null, customCells );
 
@@ -3611,7 +3880,17 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// Starting grid: player at the front, AI staggered behind —
 		// instead of the player spawning exactly on the line.
 		let gridSpawn = spawn;
-		if ( spawn && npcConfigs.length > 0 ) {
+
+		if ( multiplayer && spawn ) {
+
+			// غرفة لشخصين بالضبط: سلوت 0 = المضيف دائمًا، سلوت 1 = الضيف
+			// دائمًا — قرار حتمي يعرفه الطرفان محليًا دون تبادل أي رسالة
+			// إضافية عنه. لا يوجد AI في هذا الوضع (سباق 1 ضد 1 فقط).
+			const gridSlots = computeGridPositions( spawn, 2 );
+			gridSpawn = multiplayer.isHost ? gridSlots[ 0 ] : gridSlots[ 1 ];
+			multiplayerRemoteSlot = multiplayer.isHost ? gridSlots[ 1 ] : gridSlots[ 0 ];
+
+		} else if ( spawn && npcConfigs.length > 0 ) {
 
 			const gridSlots = computeGridPositions( spawn, 1 + npcConfigs.length );
 			gridSpawn = gridSlots[ 0 ];
@@ -3642,18 +3921,62 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
-	const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
+	const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
 	// flagImage comes from the main menu's image picker (a data: URL, see
 	// createModeMenu) — falls back to the placeholder banner in Flag.js
 	// if the player didn't pick one.
-	const vehicleFlag = addVehicleFlag( vehicle, flagImage );
+	const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 
 	dirLight.target = vehicleGroup;
 
-	// Free-roam ("الحلبة") pulls the chase cam back so a much larger part
-	// of the open arena is visible at once, instead of the classic track
-	// mode's tighter, closer-in default view.
-	const cam = freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
+	// ─── سيارة اللاعب الآخر (multiplayer) ──────────────────────
+	// بدون rigidBody حقيقي — نفس فكرة الـ AI الحركي (kinematic) في
+	// أوضاع AR (createKinematicTrackAI): تتبع حالة (position/quaternion)
+	// مستلمة عبر الشبكة وتُنعّم بينها بالـ interpolation، بدل تشغيل
+	// فيزياء كاملة محليًا لسيارة يتحكم بها طرف آخر فعليًا. هذا يعني
+	// عدم وجود تصادم فيزيائي حقيقي بين السيارتين في هذه النسخة (v1).
+	let mpRemote = null;
+
+	if ( multiplayer && multiplayerRemoteSlot ) {
+
+		const remoteModel = models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ];
+		const remoteVehicle = new Vehicle();
+		const remoteGroup = remoteVehicle.init( remoteModel );
+		scene.add( remoteGroup );
+		addVehicleFlag( remoteGroup, null ); // العلم الافتراضي (placeholder) — لا نعرف علم الطرف الآخر محليًا
+
+		const targetPos = new THREE.Vector3(
+			multiplayerRemoteSlot.position[ 0 ], multiplayerRemoteSlot.position[ 1 ], multiplayerRemoteSlot.position[ 2 ]
+		);
+		const targetQuat = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), multiplayerRemoteSlot.angle );
+
+		remoteVehicle.container.position.copy( targetPos );
+		remoteVehicle.container.quaternion.copy( targetQuat );
+
+		mpRemote = { vehicle: remoteVehicle, group: remoteGroup, targetPos, targetQuat, sendTimer: 0, connected: true };
+
+		multiplayer.onData = ( data ) => {
+
+			if ( ! data || data.t !== 'state' ) return;
+			mpRemote.targetPos.set( data.p[ 0 ], data.p[ 1 ], data.p[ 2 ] );
+			mpRemote.targetQuat.set( data.q[ 0 ], data.q[ 1 ], data.q[ 2 ], data.q[ 3 ] );
+			mpRemote.vehicle.linearSpeed = data.s;
+			mpRemote.vehicle.acceleration = data.s; // للجسم/العجلات (updateBody/updateWheels) بدون حساب فعلي
+			mpRemote.vehicle.inputX = data.ix || 0;
+			mpRemote.vehicle.driftIntensity = data.d || 0;
+
+		};
+
+		multiplayer.onDisconnected = () => {
+
+			mpRemote.connected = false;
+			showMultiplayerDisconnectNotice();
+
+		};
+
+	}
+
+	const cam = new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
@@ -3672,7 +3995,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
-	setupMusicToggle();
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -3750,9 +4072,46 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const racing = raceState.phase === 'racing';
 			const rawInput = controls.update();
+			// Touch handbrake button (see setupTouchUI) has no keyboard-side
+			// equivalent inside Controls.js itself — merged in here exactly
+			// like touchState.highBeamHeld is merged into setHighBeam() below.
+			rawInput.handbrake = rawInput.handbrake || touchState.handbrakeHeld;
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
+
+			if ( multiplayer && mpRemote ) {
+
+				// إرسال حالتي للطرف الآخر — معدّل ثابت (20/ثانية) بدل كل
+				// إطار، لتقليل حركة الشبكة دون أن يُلاحظ الفرق بصريًا (نفس
+				// نمط الـ interpolation المستخدم بالأسفل يعوّض الفجوة).
+				mpRemote.sendTimer += dt;
+				if ( mpRemote.sendTimer >= 1 / 20 ) {
+
+					mpRemote.sendTimer = 0;
+					const p = vehicle.container.position;
+					const q = vehicle.container.quaternion;
+					multiplayer.send( {
+						t: 'state',
+						p: [ p.x, p.y, p.z ],
+						q: [ q.x, q.y, q.z, q.w ],
+						s: vehicle.linearSpeed,
+						ix: vehicle.inputX,
+						d: vehicle.driftIntensity,
+					} );
+
+				}
+
+				// تنعيم حركة سيارة اللاعب الآخر بدل القفز المباشر بين آخر
+				// موضعين مستلمين (رسائل الشبكة تصل بمعدل أقل من الرندر).
+				const mpA = 1 - Math.exp( - dt * 12 );
+				mpRemote.vehicle.container.position.lerp( mpRemote.targetPos, mpA );
+				mpRemote.vehicle.container.quaternion.slerp( mpRemote.targetQuat, mpA );
+				mpRemote.vehicle.updateBody( dt );
+				mpRemote.vehicle.updateWheels( dt );
+
+			}
+
 			if ( isRace ) {
 
 				// IMPORTANT: do NOT gate the AI update on `racing`. The
@@ -3846,9 +4205,70 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 // ─── AR MODE (Meta Quest 3 passthrough) ────────────────────
 
-// ─── AR floating track ───────────────────────────────────────
+// Stage 2 test: a plain placeholder box you can grab, move, and resize
+// in AR — proving out the shared mechanic (PlaceableObject.js) before
+// it's used for the real floating track/arena. Deliberately skips
+// ARManager's own hit-test floor-placement flow entirely (no session
+// requiredFeature for it either) since this test doesn't need a floor,
+// just controller tracking + passthrough, both of which ARManager's
+// constructor/requestSession already set up.
+async function startARPlaceableTest( { sessionPromise } ) {
+
+	const arManager = new ARManager( { renderer, scene, models } );
+	await arManager.requestSession( sessionPromise );
+	arManager.previewGroup.visible = false; // not using hit-test placement here
+
+	const placeholderCamera = new THREE.PerspectiveCamera();
+
+	const box = new THREE.Mesh(
+		new THREE.BoxGeometry( 0.3, 0.15, 0.4 ),
+		new THREE.MeshStandardMaterial( { color: 0x5B8CFF, roughness: 0.4, metalness: 0.2 } )
+	);
+	// Roughly a meter in front of, and slightly below, wherever the
+	// headset happens to be when the session starts — simplest possible
+	// starting point for a grab-test; the real track placement will
+	// need proper hit-test/preview like the existing room-drive AR mode.
+	box.position.set( 0, 0.9, - 0.8 );
+	scene.add( box );
+
+	const light = new THREE.DirectionalLight( 0xffffff, 2 );
+	light.position.set( 1, 2, 1 );
+	scene.add( light );
+	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
+
+	const placeable = new PlaceableObject( box, arManager );
+	placeable.onConfirm = () => {
+
+		box.material.color.set( 0x5af168 ); // turns green once locked, so it's obvious the confirm worked
+
+	};
+
+	return {
+
+		frameUpdate( dt ) {
+
+			try {
+
+				placeable.update( dt );
+
+			} catch ( e ) {
+
+				console.error( '[main] PlaceableObject test update() error:', e );
+
+			}
+
+			renderer.render( scene, placeholderCamera );
+
+		}
+
+	};
+
+}
+
+// ─── AR floating track (Stage 3) ────────────────────────────
 // The default track, built exactly like NORMAL mode, but grabbable/
-// movable/scalable instead of fixed in place. No AI opponents yet — single car, kept
+// movable/scalable (PlaceableObject, same mechanic proven in Stage 2)
+// instead of fixed in place. No AI opponents yet — single car, kept
 // simple for this first working version.
 //
 // Physics note: crashcat's rigid bodies live in absolute world space,
@@ -3861,16 +4281,109 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 // track for free, no extra bookkeeping needed. It trades away momentum/
 // suspension/drift physics for correctness under a moving reference
 // frame; can revisit if that trade turns out to matter in practice.
+// ─── Kinematic AI (no physics — for the floating track/arena, ──
+// ─── where crashcat's world-space rigid bodies can't follow    ──
+// ─── a grabbable/scalable parent group's own transform)        ──
+// Same path-following/lookahead-steering math as the web version's
+// updateAIDrivers(), just operating on plain {x,z,heading,speed} state
+// instead of a Vehicle+rigidBody, and parented under the track/arena
+// group so movement is automatically correct after a grab or resize.
+
+function createKinematicTrackAI( npcConfigs, gridSlots, models, parentGroup, path ) {
+
+	if ( ! path || path.length < 2 ) return [];
+
+	let totalLen = 0;
+	for ( let j = 0; j < path.length; j ++ ) {
+
+		const a = path[ j ], b = path[ ( j + 1 ) % path.length ];
+		totalLen += Math.hypot( b.x - a.x, b.z - a.z );
+
+	}
+	const avgSpacing = totalLen / path.length;
+
+	return npcConfigs.map( ( cfg, i ) => {
+
+		const slot = gridSlots[ i + 1 ]; // slot 0 is the player
+		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
+		model.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
+		model.position.set( slot.position[ 0 ], slot.position[ 1 ], slot.position[ 2 ] );
+		model.rotation.y = slot.angle;
+		parentGroup.add( model );
+
+		const stepsBack = Math.round( slot.backDist / avgSpacing );
+		const idx = ( ( path.length - stepsBack ) % path.length + path.length ) % path.length;
+
+		return {
+			model, idx,
+			x: slot.position[ 0 ], z: slot.position[ 2 ], heading: slot.angle, speed: 0,
+			y: slot.position[ 1 ],
+		};
+
+	} );
+
+}
+
+function updateKinematicTrackAI( drivers, path, dt, racing ) {
+
+	if ( ! path || path.length < 2 ) return;
+
+	const LOOKAHEAD = 2;
+	const MAX_SPEED = 8, ACCEL = 10, TURN_RATE = 3;
+
+	for ( const d of drivers ) {
+
+		if ( ! racing ) continue;
+
+		const target = path[ ( d.idx + 1 ) % path.length ];
+		const dx0 = target.x - d.x, dz0 = target.z - d.z;
+		if ( Math.hypot( dx0, dz0 ) < 1.0 ) d.idx = ( d.idx + 1 ) % path.length;
+
+		const lookaheadPoint = path[ ( d.idx + LOOKAHEAD ) % path.length ];
+		const dx = lookaheadPoint.x - d.x, dz = lookaheadPoint.z - d.z;
+		const dist = Math.hypot( dx, dz );
+
+		let targetSpeed = MAX_SPEED;
+		if ( dist > 0.001 ) {
+
+			const targetAngle = Math.atan2( dx, dz );
+			let angleDiff = targetAngle - d.heading;
+			// Wrap to (-PI, PI]. NOTE: `((x+PI)%(2*PI))-PI` alone is
+			// broken in JavaScript for x below -PI, because JS `%` keeps
+			// the sign of the dividend (unlike e.g. Python's modulo) —
+			// see the normalizeAngle() comment in AIController.js for the
+			// full writeup and a real-physics repro. The extra
+			// `+2*PI)%(2*PI)` forces a non-negative intermediate first.
+			angleDiff = ( ( ( angleDiff + Math.PI ) % ( Math.PI * 2 ) + Math.PI * 2 ) % ( Math.PI * 2 ) ) - Math.PI;
+
+			d.heading += THREE.MathUtils.clamp( angleDiff, - TURN_RATE * dt, TURN_RATE * dt );
+
+			const sharpness = THREE.MathUtils.clamp( Math.abs( angleDiff ) / ( Math.PI / 3 ), 0, 1 );
+			targetSpeed = MAX_SPEED * ( 1 - sharpness * 0.5 );
+
+		}
+
+		d.speed += THREE.MathUtils.clamp( targetSpeed - d.speed, - ACCEL * dt, ACCEL * dt );
+		d.x += Math.sin( d.heading ) * d.speed * dt;
+		d.z += Math.cos( d.heading ) * d.speed * dt;
+
+		d.model.position.set( d.x, d.y, d.z );
+		d.model.rotation.y = d.heading;
+
+	}
+
+}
 
 // ─── AR floating 3D mode menu ───────────────────────────────
 // Shown immediately on entering AR — three pointable/selectable cards
 // (room-drive / floating track / floating arena), replacing the old
 // flat pre-session sub-screen. Selection uses controller pointing
 // (raycasting, the natural VR/AR menu interaction) + trigger to
-// confirm, rather than the grab mechanic used elsewhere (grabbing
-// implies "pick this up", which doesn't fit "choose one of these
-// options").
+// confirm, rather than the grab mechanic PlaceableObject uses
+// elsewhere (grabbing implies "pick this up", which doesn't fit
+// "choose one of these options").
 const modeCardLoader = new THREE.TextureLoader();
+const modeCardFallbackColors = { room: '#5B8CFF', track: '#8B5FBF', arena: '#E0621B' };
 const modeCardTextures = {};
 for ( const key of [ 'room', 'track', 'arena' ] ) {
 
@@ -3885,13 +4398,15 @@ for ( const key of [ 'room', 'track', 'arena' ] ) {
 
 function createModeCard( textureKey ) {
 
-	// Portrait aspect ratio matching the source images (≈469:768) — title
-	// text is already baked into the image itself, so no canvas text
-	// overlay needed here.
-	return new THREE.Mesh(
+	// Portrait aspect ratio matching the source images (≈469:768) —
+	// title text is already baked into the image itself, so no canvas
+	// text overlay needed here.
+	const mesh = new THREE.Mesh(
 		new THREE.PlaneGeometry( 0.22, 0.36 ),
 		new THREE.MeshBasicMaterial( { map: modeCardTextures[ textureKey ], side: THREE.DoubleSide } )
 	);
+
+	return mesh;
 
 }
 
@@ -3908,9 +4423,7 @@ function showFloatingModeMenu( arManager, scene ) {
 		const cards = options.map( ( id, i ) => {
 
 			const card = createModeCard( id );
-			// Centered around x=0 regardless of how many options there are
-			// (was a flat `(i - 1) * 0.26`, only correct for exactly 3).
-			card.position.set( ( i - ( options.length - 1 ) / 2 ) * 0.26, 0, 0 );
+			card.position.set( ( i - 1 ) * 0.26, 0, 0 );
 			card.userData.optionId = id;
 			card.userData.baseScale = 1;
 			menuGroup.add( card );
@@ -4330,36 +4843,7 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 	// responsible for bright lights blowing out into an overwhelming
 	// glow, since bloom amplifies bright pixels heavily.
 	renderer.setEffects( [] );
-	// Fires on ANY session end, not just the ones this file triggers
-	// itself. openExitConfirm() and showAR3DRaceResults() below both call
-	// arManager.session.end() from inside the app and handle their own
-	// stash+reload back to the AR mode picker — but a WebXR session can
-	// also end from OUTSIDE the app entirely (the headset's own "exit AR"
-	// system gesture, taking the headset off long enough to auto-end the
-	// session, an underlying WebXR error) with no in-app trigger at all.
-	// Previously that case had no handler at all: ARManager.update()
-	// already no-ops once session is null, but each submode's own
-	// frameUpdate() kept calling renderer.render() every frame regardless
-	// — meaning the page would just sit frozen on the last AR frame with
-	// no way back, instead of returning to the menu the way an
-	// intentional exit does. Doing the same stash+reload here
-	// unconditionally covers that case too; on the two explicit exit
-	// paths this fires redundantly alongside their own reload, which is
-	// harmless (the second reload call is a no-op once the page is
-	// already navigating away).
-	arManager.session.addEventListener( 'end', () => {
-
-		renderer.setEffects( [ bloomPass ] );
-
-		try {
-
-			sessionStorage.setItem( 'hwReturnToArMenu', JSON.stringify( { customText, vehicleKey, flagImage } ) );
-
-		} catch ( e ) { /* ignore — falls back to the game's main menu */ }
-
-		window.location.reload();
-
-	} );
+	arManager.session.addEventListener( 'end', () => { renderer.setEffects( [ bloomPass ] ); } );
 
 	const placeholderCamera = new THREE.PerspectiveCamera();
 	const menuCtx = {};
@@ -4425,18 +4909,6 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 	function openExitConfirm() {
 
 		exitConfirmActive = true;
-
-		// While this confirm menu is up, frameUpdate below skips
-		// subMode.frameUpdate() entirely (see the `if ( exitConfirmActive )`
-		// early-return further down) — so nothing ever calls audio.update()
-		// to ramp the engine/skid/etc. loops down, and they're left playing
-		// at whatever volume/pitch they last had, seemingly stuck, until
-		// the menu closes. Suspending the AudioContext itself (the same
-		// mechanism Audio.js already uses to pause on tab-hide) silences
-		// everything immediately without touching any per-mode state.
-		const exitAudioCtx = subMode && subMode.audio && subMode.audio.listener.context;
-		if ( exitAudioCtx && exitAudioCtx.state === 'running' ) exitAudioCtx.suspend();
-
 		showExitConfirm( arManager, scene ).then( ( action ) => {
 
 			exitConfirmActive = false;
@@ -4466,11 +4938,6 @@ async function startARWithFloatingMenu( { mapParam, customCells, customText, veh
 				} catch ( e ) { /* ignore */ }
 
 				arManager.session.end().finally( () => window.location.reload() );
-
-			} else if ( exitAudioCtx && exitAudioCtx.state === 'suspended' ) {
-
-				// 'cancel' — driving resumes, so sound should too.
-				exitAudioCtx.resume();
 
 			}
 
@@ -4685,11 +5152,30 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
+	light.castShadow = true;
+	// Shadow camera frustum sized to the track's small AR footprint
+	// (span ≈ 60 × FIXED_SCALE meters) — the default frustum is tuned
+	// for NORMAL mode's much larger real-scale track and was far too
+	// wide here, making shadow resolution effectively zero.
+	const shadowExtent = 60 * GRID_SCALE * FIXED_SCALE;
+	light.shadow.camera.left = - shadowExtent;
+	light.shadow.camera.right = shadowExtent;
+	light.shadow.camera.top = shadowExtent;
+	light.shadow.camera.bottom = - shadowExtent;
+	light.shadow.camera.near = 0.1;
+	light.shadow.camera.far = shadowExtent * 4;
+	light.shadow.mapSize.setScalar( 1024 );
+	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
-	// Fill light from the opposite side — softens the side of the car
-	// facing away from `light` above instead of it reading pure black.
+	// Fill light from the opposite side, no shadow (cheap — a second
+	// shadow-casting light here would double the shadow-map cost this
+	// mode already went out of its way to avoid, see dirLight below) —
+	// softens the side of the car facing away from `light` above instead
+	// of it reading pure black. The track/car placement is frozen once
+	// locked in (frameUpdate stops moving arRoot after that point), so a
+	// static position here is fine — nothing needs to track it per frame.
 	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.22 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
 	scene.add( fillLight );
@@ -4700,13 +5186,21 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	ensureAREnvironment();
 
 	// dirLight (module-level, top of file) is created once at page load
-	// and stays visible/full intensity (3) forever unless something turns
-	// it off — nothing did for this mode, so it was double-lighting the
-	// scene on top of this mode's own purpose-built `light` above. `light`
+	// and stays castShadow=true forever — nothing ever turned it back off
+	// for this mode. So this scene was rendering TWO full shadow-casting
+	// directional lights every single frame: dirLight (4096×4096 map,
+	// still using its NORMAL-mode shadow frustum since only startNormalMode
+	// ever calls dirLight.shadow.camera.left/right/top/bottom) stacked on
+	// top of this mode's own purpose-built `light` above. A second full
+	// shadow-map render pass every frame is real, avoidable GPU cost —
+	// exactly the kind of thing that pushes frame time past a Quest's
+	// ~11ms/frame budget and shows up as the reprojection judder/shake
+	// reported when turning your head after locking the track in. `light`
 	// + the ambient above are the actual intended lighting for this tiny
-	// AR scene, so dirLight is switched off entirely here instead. Page
-	// reload on exit (see the exit handler below) restores it for the
-	// next mode.
+	// AR scene, so dirLight is switched off entirely here rather than
+	// just its shadow — it was also double-lighting the scene from a
+	// second directional source at full (3) intensity. Page reload on
+	// exit (see the exit handler below) restores it for the next mode.
 	dirLight.visible = false;
 
 	let raceCtx = null;
@@ -4787,8 +5281,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			// needed at all.
 			arRoot.add( vehicleGroup );
 			addCustomTextDecals( vehicleGroup, customText );
-			const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
-			const vehicleFlag = addVehicleFlag( vehicle, flagImage );
+			const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
+			const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 			// Real-world meters, same as vehicleLights' own position values
 			// above — arRoot's single shrink transform scales this down in
 			// sync with everything else, no extra scale math needed here.
@@ -4877,9 +5371,10 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 			const aiFlagUrl = createSaudiFlagDataUrl();
 			const aiExtras = aiDrivers.map( ( d, i ) => {
 
-				const lights = addVehicleLights( d.vehicle );
+				const group = d.vehicle.container;
+				const lights = addVehicleLights( group );
 				lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
-				const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
+				const flag = addVehicleFlag( group, aiFlagUrl );
 				const marks = new DriftMarks( scene, 'ar-floating-track-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 				return { lights, driftMarks: marks, flag };
 
@@ -4928,12 +5423,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 	const controls = new Controls();
 
 	return {
-
-		// undefined until raceCtx is populated (placement locked in) — the
-		// outer exit-confirm flow (startARWithFloatingMenu) uses this to
-		// suspend/resume the AudioContext while its menu is open, same
-		// approach Audio.js already uses for tab-visibility pausing.
-		get audio() { return raceCtx && raceCtx.audio; },
 
 		frameUpdate( dt, timestamp, frame ) {
 
@@ -5067,7 +5556,6 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
 					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
-					if ( arManager.getMusicToggle() ) bgMusic.muted = ! bgMusic.muted;
 
 					// AI opponents: same real pure-pursuit driving as
 					// NORMAL mode's own race AI, plus the same lights/
@@ -5161,8 +5649,8 @@ async function startARFloatingTrack( { arManager, vehicleKey, customText, flagIm
 // real track, world=null for visual-only/no physics), a curb-striped
 // edge line, and corner dressing (floodlight poles, tire stacks, parked
 // decoration cars) — but no walls/track loop of its own. Grabbable/
-// movable/scalable, and a simple kinematic car, same mechanic as the
-// floating track. halfX/halfZ are independent (was a
+// movable/scalable (PlaceableObject) and a simple kinematic car, same
+// mechanic as the floating track. halfX/halfZ are independent (was a
 // single `half`, square-only) per feedback that the pad should be
 // rectangular and bigger rather than a square.
 function buildDriftPad( halfX, halfZ, models, scale = 1 ) {
@@ -5254,6 +5742,7 @@ function createKinematicArenaAI( npcConfigs, models, parentGroup, halfX, halfZ )
 		const heading = Math.random() * Math.PI * 2;
 
 		const model = ( models[ cfg.key ] || models[ 'vehicle-truck-yellow' ] ).clone();
+		model.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
 		model.position.set( x, 0.5, z );
 		model.rotation.y = heading;
 		parentGroup.add( model );
@@ -5337,15 +5826,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// same ~1.3× per side (≈75% more floor area). Every wall/ground
 	// collider and visual dressing below is already derived from these
 	// two constants, so nothing else needs to change to match.
-	// Bumped up again (~20% per side) per feedback that the arena still
-	// felt small — every wall/ground collider, floodlight pole, barrier,
-	// and corner decoration below is derived from these two constants
-	// (buildDriftPad/scatterCornerDecor/createFreeRoamAI/lockInAndStart's
-	// own colliders all take halfX/halfZ as parameters), so widening the
-	// arena moves all of that dressing out along with it automatically —
-	// nothing else needed to change to match.
-	const PAD_HALF_X = 25;
-	const PAD_HALF_Z = 16;
+	const PAD_HALF_X = 21;
+	const PAD_HALF_Z = 13;
 
 	// ✏️ EASY RETUNING KNOBS — see the identical comment in
 	// startARFloatingTrack for what each one does (including TIME_SCALE,
@@ -5353,19 +5835,12 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	// of FIXED_SCALE being the one, consistent size knob) and why they're
 	// all safe to change freely (purely cosmetic/pacing, no
 	// physics-stability impact).
-	// Bumped up again (0.03 → 0.039 → 0.05 → 0.08) to match the car/arena
-	// AR tabletop size used by the reference "Drifting" project's own
-	// drift-arena AR mode (its AR_CONTENT_SCALE constant) — since the
-	// player's sphere radius here is a fixed real-world 0.5 (createSphereBody's
-	// own default, unscaled — this mode's physics runs at full real scale,
-	// see lockInAndStart() below), FIXED_SCALE alone already sets the
-	// car's real-world tabletop diameter directly (0.5×2×FIXED_SCALE), so
-	// matching that one number reproduces the same car size Drifting uses
-	// (0.08m); the arena footprint scales the same way from PAD_HALF_X/Z,
-	// which are unchanged.
+	// Bumped up (0.03 → 0.039 → 0.05, ~28% this time) — same reasoning
+	// and same relative bump as the identical change in
+	// startARFloatingTrack.
 	// Declared before buildDriftPad() (moved up from below) so it can be
 	// forwarded into the pole lights' distance/intensity scaling.
-	const FIXED_SCALE = 0.08;
+	const FIXED_SCALE = 0.05;
 	const arenaGroup = buildDriftPad( PAD_HALF_X, PAD_HALF_Z, models, FIXED_SCALE );
 
 	// buildDriftPad() starts at identity transform (no internal offset
@@ -5393,11 +5868,22 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 
 	const light = new THREE.DirectionalLight( 0xffffff, 3 );
 	light.position.set( 0.6, 1, 0.6 );
+	light.castShadow = true;
+	const shadowExtent = Math.max( PAD_HALF_X, PAD_HALF_Z ) * 2 * FIXED_SCALE;
+	light.shadow.camera.left = - shadowExtent;
+	light.shadow.camera.right = shadowExtent;
+	light.shadow.camera.top = shadowExtent;
+	light.shadow.camera.bottom = - shadowExtent;
+	light.shadow.camera.near = 0.1;
+	light.shadow.camera.far = shadowExtent * 4;
+	light.shadow.mapSize.setScalar( 1024 );
+	light.shadow.camera.updateProjectionMatrix();
 	scene.add( light );
 	scene.add( new THREE.AmbientLight( 0xffffff, 0.6 ) );
 
 	// Fill light + environment map — see the identical comments in
-	// startARFloatingTrack for why each one is here (static position since
+	// startARFloatingTrack for why each one is here (no shadow on the
+	// fill light to avoid doubling shadow-map cost; static position since
 	// the arena is frozen in place once locked in).
 	const fillLight = new THREE.DirectionalLight( 0xffffff, 0.22 );
 	fillLight.position.set( -0.6, 0.5, -0.6 );
@@ -5405,16 +5891,21 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	ensureAREnvironment();
 
 	// Same fix as startARFloatingTrack: dirLight (module-level, top of
-	// file) is created once at page load and stays visible/full intensity
-	// (3) forever unless something turns it off — nothing did for this
-	// mode, so it was double-lighting the scene on top of this mode's own
-	// purpose-built `light` above. Page reload on exit restores it for the
-	// next mode.
+	// file) is created once at page load and stays castShadow=true
+	// forever unless something turns it off — nothing did for this mode,
+	// so it was rendering a second full shadow-casting pass every frame
+	// on top of this mode's own `light` above (and double-lighting the
+	// scene from two directional sources at once). That extra shadow
+	// pass is real, avoidable GPU cost — the kind that pushes frame time
+	// past a Quest's budget and shows up as reprojection judder when
+	// turning your head after locking the arena in. Page reload on exit
+	// restores it for the next mode.
 	dirLight.visible = false;
 
 	// ── Placement-phase preview: lightweight kinematic car + AI ──
 	const previewContainer = new THREE.Group();
 	const previewModel = ( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] ).clone();
+	previewModel.traverse( ( c ) => { if ( c.isMesh ) { c.castShadow = false; c.receiveShadow = false; } } );
 	previewContainer.add( previewModel );
 	previewContainer.position.set( 0, 0.5, 0 );
 	arenaGroup.add( previewContainer );
@@ -5542,8 +6033,8 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// transform needed anywhere in this function.
 		arenaGroup.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
-		const vehicleFlag = addVehicleFlag( vehicle, flagImage );
+		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 		// Same reasoning as the floating track's identical call — real-world
 		// meters, arenaGroup's own shrink transform handles the rest.
 		addARContactShadow( vehicleGroup );
@@ -5556,18 +6047,9 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		// startARFloatingTrack (defaulting to scale=1 caused the reported
 		// freeze/hang: real-meter-sized puffs, at default emission rate,
 		// shared across the player AND all 3 AI every frame).
-		// emitMultiplier halved again (0.15 -> 0.075, 0.06 -> 0.03) per
-		// feedback that the arena's smoke was still causing stutter.
-		// The puff-size ratio (SmokeTrails' own `scale` param, 2nd arg)
-		// also cut 0.7 -> 0.3 per follow-up feedback: FIXED_SCALE itself
-		// went up (0.05 -> 0.08, see its own comment) to match the
-		// reference project's car size, and this ratio hadn't been
-		// re-tuned to match — puffs were growing right along with it and
-		// ended up visibly bigger than the car itself, reading as fog
-		// covering it rather than a trailing smoke puff.
-		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.3, 0.075 );
+		const particles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.15 );
 		// Same AI-gets-its-own-lighter-pool split as startARFloatingTrack.
-		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.3, 0.03 );
+		const aiParticles = new SmokeTrails( scene, FIXED_SCALE * 0.7, 0.06 );
 		// Drift marks fade out after DRIFT_MARK_LIFETIME seconds — see the
 		// identical note in startARFloatingTrack.
 		const driftMarks = new DriftMarks( scene, 'ar-floating-arena', FIXED_SCALE, DRIFT_MARK_LIFETIME );
@@ -5607,17 +6089,10 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 		const aiFlagUrl = createSaudiFlagDataUrl();
 		const aiExtras = aiDrivers.map( ( d, i ) => {
 
-			const lights = addVehicleLights( d.vehicle );
-			// AI always shows hazard/emergency blinkers, but started on a
-			// short delay instead of the instant lock-in creates them — per
-			// feedback that the arena visibly hitches for a moment right at
-			// lock-in, and hazards were suspected. This alone can't remove
-			// the actual creation cost (the hazard lens/glow meshes for all
-			// 3 AI cars are still built synchronously above, same as
-			// everything else lock-in builds in one go), but it keeps the
-			// blink state from also kicking in on that exact frame.
-			setTimeout( () => { lights.hazardsOn = true; }, 400 );
-			const flag = addVehicleFlag( d.vehicle, aiFlagUrl );
+			const group = d.vehicle.container;
+			const lights = addVehicleLights( group );
+			lights.hazardsOn = true; // AI always shows hazard/emergency blinkers
+			const flag = addVehicleFlag( group, aiFlagUrl );
 			const marks = new DriftMarks( scene, 'ar-floating-arena-ai-' + i, FIXED_SCALE, DRIFT_MARK_LIFETIME );
 			return { lights, driftMarks: marks, flag };
 
@@ -5643,9 +6118,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 	const controls = new Controls();
 
 	return {
-
-		// See the identical getter in startARFloatingTrack for why.
-		get audio() { return raceCtx && raceCtx.audio; },
 
 		frameUpdate( dt, timestamp, frame ) {
 
@@ -5706,7 +6178,6 @@ async function startARFloatingArena( { arManager, vehicleKey, customText, flagIm
 					if ( arManager.getHazardToggle() ) toggleHazards( raceCtx.vehicleLights );
 					setHighBeam( raceCtx.vehicleLights, arManager.getHighBeamHold(), raceCtx.arScale );
 					raceCtx.audio.setHorn( arManager.getHornHold() );
-					if ( arManager.getMusicToggle() ) bgMusic.muted = ! bgMusic.muted;
 
 					// AI opponents: same wandering/drifting free-roam AI as
 					// NORMAL mode, plus the same lights/flag/smoke/drift-
@@ -5776,8 +6247,8 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 		const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
 		scene.add( vehicleGroup );
 		addCustomTextDecals( vehicleGroup, customText );
-		const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
-		const vehicleFlag = addVehicleFlag( vehicle, flagImage );
+		const vehicleLights = addVehicleLights( vehicleGroup, true ); // true: this is the player's own car — real hazard lights
+		const vehicleFlag = addVehicleFlag( vehicleGroup, flagImage );
 		// Parented under vehicleGroup (not vehicleModel) — vehicleGroup's own
 		// origin is always pinned at true ground level regardless of resize
 		// (see the comment below), so the shadow doesn't need the same
@@ -5845,9 +6316,6 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 
 	return {
 
-		// See the identical getter in startARFloatingTrack for why.
-		get audio() { return gameState && gameState.audio; },
-
 		frameUpdate( dt, timestamp, frame ) {
 
 			try {
@@ -5900,7 +6368,6 @@ async function startARMode( { arManager, mapParam, customText, vehicleKey, flagI
 					if ( arManager.getHazardToggle() ) toggleHazards( gameState.vehicleLights );
 					setHighBeam( gameState.vehicleLights, arManager.getHighBeamHold(), gameState.vehicleScale );
 					gameState.audio.setHorn( arManager.getHornHold() );
-					if ( arManager.getMusicToggle() ) bgMusic.muted = ! bgMusic.muted;
 
 					if ( gameState.vehicleLights ) {
 
