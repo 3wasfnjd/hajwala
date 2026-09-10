@@ -1682,6 +1682,144 @@ function buildWarningSign( scene, x, z, rotationY ) {
 
 }
 
+// Procedural gas station (محطة بنزين) — canopy on 4 poles over a paved
+// pump island, two pump units, a small kiosk building behind it, and a
+// roadside sign with a fuel-drop icon. Built entirely from primitives
+// (no GLB model exists for this yet) so it drops straight into the web
+// free-roam arena's scene-building code below, same as buildWarningSign/
+// buildFloodlightPole. Purely visual, no physics collider anywhere on it —
+// the car can drive straight through the canopy, between the pumps, and
+// through the kiosk, so it can enter and exit from the inside.
+function buildGasStation( scene, x, z, rotationY = 0, world = null ) {
+
+	const group = new THREE.Group();
+	group.position.set( x, 0, z );
+	group.rotation.y = rotationY;
+
+	const islandW = 8, islandD = 5;
+	const red = new THREE.MeshStandardMaterial( { color: 0xd94a3a, roughness: 0.5, metalness: 0.2 } );
+	const white = new THREE.MeshStandardMaterial( { color: 0xf4f4ef, roughness: 0.6 } );
+
+	// Paved pump island, slightly raised above the asphalt.
+	const island = new THREE.Mesh(
+		new THREE.BoxGeometry( islandW, 0.15, islandD ),
+		new THREE.MeshStandardMaterial( { color: 0xb9b9b0, roughness: 0.9 } )
+	);
+	island.position.y = 0.075;
+	group.add( island );
+
+	// Canopy: 4 support poles + flat roof with a red fascia stripe on
+	// the open sides, same red/white palette used for barrier segments
+	// elsewhere in the arena so it reads as part of the same world.
+	const poleHeight = 4.2;
+	for ( const [ px, pz ] of [
+		[ -islandW / 2 + 0.4, -islandD / 2 + 0.4 ], [ islandW / 2 - 0.4, -islandD / 2 + 0.4 ],
+		[ -islandW / 2 + 0.4,  islandD / 2 - 0.4 ], [ islandW / 2 - 0.4,  islandD / 2 - 0.4 ],
+	] ) {
+
+		const pole = new THREE.Mesh( new THREE.CylinderGeometry( 0.12, 0.12, poleHeight, 8 ), red );
+		pole.position.set( px, poleHeight / 2, pz );
+		group.add( pole );
+
+	}
+
+	const roof = new THREE.Mesh( new THREE.BoxGeometry( islandW + 1, 0.35, islandD + 1.5 ), white );
+	roof.position.y = poleHeight + 0.15;
+	group.add( roof );
+
+	for ( const sign of [ 1, -1 ] ) {
+
+		const stripe = new THREE.Mesh( new THREE.BoxGeometry( islandW + 1.02, 0.15, 0.1 ), red );
+		stripe.position.set( 0, poleHeight - 0.05, sign * ( islandD / 2 + 0.7 ) );
+		group.add( stripe );
+
+	}
+
+	// Two pump units on the island, each with a hose stub angled out
+	// toward where a car would park alongside it.
+	for ( const px of [ -islandW / 4, islandW / 4 ] ) {
+
+		const pumpGroup = new THREE.Group();
+
+		const body = new THREE.Mesh( new THREE.BoxGeometry( 0.7, 1.3, 0.5 ), white );
+		body.position.y = 0.8;
+		pumpGroup.add( body );
+
+		const top = new THREE.Mesh( new THREE.BoxGeometry( 0.75, 0.15, 0.55 ), red );
+		top.position.y = 1.525;
+		pumpGroup.add( top );
+
+		const hose = new THREE.Mesh(
+			new THREE.CylinderGeometry( 0.03, 0.03, 0.5, 6 ),
+			new THREE.MeshStandardMaterial( { color: 0x1a1a1a, roughness: 0.8 } )
+		);
+		hose.rotation.z = Math.PI / 2.5;
+		hose.position.set( 0.4, 0.9, 0 );
+		pumpGroup.add( hose );
+
+		pumpGroup.position.set( px, 0.15, 0 );
+		group.add( pumpGroup );
+
+	}
+
+	// Small kiosk/shop building behind the canopy, with its own
+	// red-striped roof.
+	const kioskZ = - islandD / 2 - 2.2;
+	const kiosk = new THREE.Mesh( new THREE.BoxGeometry( 3, 2.4, 2.5 ), white );
+	kiosk.position.set( 0, 1.2, kioskZ );
+	group.add( kiosk );
+
+	const kioskRoof = new THREE.Mesh( new THREE.BoxGeometry( 3.3, 0.2, 2.8 ), red );
+	kioskRoof.position.set( 0, 2.5, kioskZ );
+	group.add( kioskRoof );
+
+	// Roadside sign: post + board + a simple fuel-drop icon (cone atop
+	// a sphere), same low-poly-icon approach as buildWarningSign's
+	// triangle face.
+	const signX = islandW / 2 + 1.5;
+	const signPost = new THREE.Mesh(
+		new THREE.CylinderGeometry( 0.08, 0.08, 3.5, 8 ),
+		new THREE.MeshStandardMaterial( { color: 0x3a3a3e, roughness: 0.6, metalness: 0.3 } )
+	);
+	signPost.position.set( signX, 1.75, 0 );
+	group.add( signPost );
+
+	const signBoard = new THREE.Mesh( new THREE.BoxGeometry( 1.4, 1.8, 0.1 ), white );
+	signBoard.position.set( signX, 3.3, 0 );
+	group.add( signBoard );
+
+	const signStripe = new THREE.Mesh( new THREE.BoxGeometry( 1.4, 0.4, 0.12 ), red );
+	signStripe.position.set( signX, 3.9, 0 );
+	group.add( signStripe );
+
+	const dropTop = new THREE.Mesh( new THREE.ConeGeometry( 0.22, 0.35, 12 ), red );
+	dropTop.position.set( signX, 3.55, 0.07 );
+	dropTop.rotation.x = Math.PI;
+	group.add( dropTop );
+
+	const dropBottom = new THREE.Mesh( new THREE.SphereGeometry( 0.22, 12, 12 ), red );
+	dropBottom.position.set( signX, 3.3, 0.07 );
+	group.add( dropBottom );
+
+	// Warm light under the canopy so it reads as "open/lit" against
+	// the free-roam arena's night-stadium darkness.
+	const canopyLight = new THREE.PointLight( 0xfff2cc, 1.2, 12, 2 );
+	canopyLight.position.set( 0, poleHeight - 0.3, 0 );
+	group.add( canopyLight );
+
+	scene.add( group );
+
+	// No physics collider anywhere on the station (canopy, pumps, or
+	// kiosk) — per request the car can drive straight in and out through
+	// the middle of it, same as driving under the canopy. `world` is
+	// kept as a param for call-site compatibility / future use even
+	// though it's unused now.
+	void world;
+
+	return group;
+
+}
+
 // Floodlight pole for contexts like the AR floating arena where the whole
 // group gets scaled down to tabletop size — takes a `scale` (the same
 // FIXED_SCALE knob used everywhere else) and scales the SpotLight's
@@ -3563,6 +3701,11 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		scatterCornerDecor( scene, models, roadHalf, roadHalf, [ 'vehicle-truck-green', 'vehicle-truck-black', 'vehicle-truck-red' ], world );
 		buildWarningSign( scene, -4.5, roadHalf - 1, Math.PI );
 		buildWarningSign( scene, 4.5, roadHalf - 1, Math.PI );
+
+		// Gas station along the west edge, clear of the corner tire/car
+		// clusters and the north entrance gate — faces east, back toward
+		// the open arena, so the pumps/canopy are visible on approach.
+		buildGasStation( scene, - roadHalf * 0.55, - roadHalf * 0.3, Math.PI / 2, world );
 
 		// The AI roster (NPC_TRUCKS — camry, purple, red, camaro per the
 		// current request) wanders/drifts here, same as everywhere else AI
