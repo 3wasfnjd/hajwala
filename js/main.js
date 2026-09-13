@@ -2236,24 +2236,30 @@ const CAMARO_LAYOUT = {
 	],
 };
 
-// vehicle-jeep.glb has no dedicated headlight/taillight graphics to sample
-// (unlike Camry/Camaro above) — its own body/cab proportions are close
-// enough to the truck's that TRUCK_LAYOUT's fractions-of-the-vehicle's-own-
-// bounding-box (each value ÷ the truck's own halfWidth=0.75/height=1.3/
-// halfLength=1.4) carry over reasonably, just reapplied against the jeep's
-// own measured bounds (halfWidth=0.213, height=0.406, halfLength=0.5).
+// vehicle-jeep.glb DOES have its own headlight/taillight/indicator graphics
+// baked into the body texture (unlike the initial fractions-of-bounding-box
+// guess this table used to carry) — re-measured directly off them via exact
+// orthographic front/rear renders of the model (pixel grid over the actual
+// lens/lamp shapes, converted back through the known camera frustum), same
+// approach as CAMRY_LAYOUT/CAMARO_LAYOUT above. That first guess put the
+// taillight noticeably too far inboard and too high; the round headlight
+// lens itself happened to be close, but its hazard/indicator lamp (a
+// separate smaller lens next to it) sits further outboard than the
+// headlight, not level with it.
 const JEEP_LAYOUT = {
-	headlightLens: [ 0.113, 0.225, 0.507 ],
-	taillight: [ 0.113, 0.274, -0.475 ],
-	reverseLight: [ 0.071, 0.206, -0.479 ],
+	headlightLens: [ 0.122, 0.218, 0.507 ],
+	taillight: [ 0.164, 0.210, -0.485 ],
+	// No dedicated reverse-light graphic to sample (same as the truck) —
+	// keeps the truck's own ratio to taillight (×0.628 / ×0.7497 / ×1.0074).
+	reverseLight: [ 0.103, 0.157, -0.489 ],
 	flag: [ -0.170, 0.185, -0.485 ],
 	windshieldDecal: [ 0, 0.206, 0.205 ],
 	tailgateDecal: [ 0, 0.206, -0.5 ],
-	headlightSpot: [ 0.113, 0.787, 0.629 ],
-	headlightSpotTarget: [ 0.113, 0.063, 6.43 ],
+	headlightSpot: [ 0.122, 0.764, 0.629 ],
+	headlightSpotTarget: [ 0.122, 0.061, 6.43 ],
 	hazards: [
-		[ -0.113, 0.234, 0.536 ], [ 0.113, 0.234, 0.536 ],
-		[ -0.113, 0.274, -0.475 ], [ 0.113, 0.274, -0.475 ],
+		[ -0.178, 0.218, 0.535 ], [ 0.178, 0.218, 0.535 ],
+		[ -0.164, 0.210, -0.485 ], [ 0.164, 0.210, -0.485 ],
 	],
 };
 
