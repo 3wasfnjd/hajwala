@@ -589,6 +589,7 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-mode-card.web { box-shadow: 0 0 0 1px rgba(79,216,232,0.25) inset; }
 			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
+			#hajwalah-menu .hw-mode-card.comic { box-shadow: 0 0 0 1px rgba(255,122,60,0.35) inset; }
 			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
 			#hajwalah-menu .hw-mode-card img {
 				width: 48px; height: 48px; object-fit: contain; margin-bottom: 6px;
@@ -687,6 +688,13 @@ function createModeMenu( { arAvailable } ) {
 								<img src="images/menu/icon-web.png" alt="WEB" />
 								<div class="hw-m-label">WEB</div>
 								<div class="hw-m-sub">لمس أو كيبورد</div>
+							</button>
+							<button class="hw-mode-card comic hw-comic-btn">
+								<svg viewBox="0 0 24 24" fill="#FF7A3C" stroke="none">
+									<path d="M13 2 4 14h6l-1 8 9-12h-6z"/>
+								</svg>
+								<div class="hw-m-label">كوميك</div>
+								<div class="hw-m-sub">أسلوب كرتوني</div>
 							</button>
 						</div>
 					</div>
@@ -843,10 +851,15 @@ function createModeMenu( { arAvailable } ) {
 
 		nameIconBtn.addEventListener( 'click', openNamePopup );
 
-		// ─── Mode navigation (WEB reveals track/free-roam choice; VR enters
-		// the AR session directly) — same two-step flow as before, just
-		// reskinned into the new panel. ───
+		// ─── Mode navigation (WEB and كوميك both reveal the same track/
+		// free-roam choice; VR enters the AR session directly) — same
+		// two-step flow as before, just reskinned into the new panel.
+		// كوميك is NORMAL mode with `comicStyle: true` tacked onto the
+		// resolved choice — a toon-shaded, ink-outlined visual style
+		// applied only inside startNormalMode when that flag is set, so
+		// WEB and VR render exactly as before. ───
 		const webBtn = menu.querySelector( '.hw-web-btn' );
+		const comicBtn = menu.querySelector( '.hw-comic-btn' );
 		const arEntryBtn = menu.querySelector( '.hw-ar-entry-btn' );
 		const stepTop = menu.querySelector( '.hw-step-top' );
 		const stepWeb = menu.querySelector( '.hw-step-web' );
@@ -854,12 +867,18 @@ function createModeMenu( { arAvailable } ) {
 		const webFreeBtn = menu.querySelector( '.hw-web-free-btn' );
 		const backLinkWeb = menu.querySelector( '.hw-back-link-web' );
 
-		webBtn.addEventListener( 'click', () => {
+		let pendingComicStyle = false;
 
+		function revealStepWeb( comicStyle ) {
+
+			pendingComicStyle = comicStyle;
 			stepTop.classList.add( 'hidden' );
 			stepWeb.classList.remove( 'hidden' );
 
-		} );
+		}
+
+		webBtn.addEventListener( 'click', () => revealStepWeb( false ) );
+		comicBtn.addEventListener( 'click', () => revealStepWeb( true ) );
 
 		backLinkWeb.addEventListener( 'click', ( e ) => {
 
@@ -877,6 +896,7 @@ function createModeMenu( { arAvailable } ) {
 			resolve( {
 				choice: 'normal', customText: customTextValue.trim(), freeRoam,
 				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl,
+				comicStyle: pendingComicStyle,
 			} );
 
 		}
@@ -3520,9 +3540,68 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 
 }
 
+// ─── كوميك MODE helpers ─────────────────────────────────────
+// Turns the already-built NORMAL-mode scene into a flat, ink-outlined
+// comic-book look: every lit mesh's PBR material becomes a banded
+// MeshToonMaterial, and OutlineEffect layers a black inverted-hull outline
+// on top at render time. Only called when `comicStyle` is set — WEB and AR
+// never touch this code, so their look is untouched.
+
+function createToonGradientMap() {
+
+	// A tiny 1D lookup texture: MeshToonMaterial samples it by
+	// dot(normal, light) instead of shading continuously, producing the
+	// "flat ink-shaded" bands instead of a smooth PBR gradient. Nearest
+	// filtering keeps the bands crisp instead of blurring them together.
+	const colors = new Uint8Array( [ 60, 130, 195, 255 ] );
+	const gradientMap = new THREE.DataTexture( colors, colors.length, 1, THREE.RedFormat );
+	gradientMap.needsUpdate = true;
+	gradientMap.minFilter = THREE.NearestFilter;
+	gradientMap.magFilter = THREE.NearestFilter;
+	gradientMap.generateMipmaps = false;
+	return gradientMap;
+
+}
+
+function applyComicStyle( root ) {
+
+	const gradientMap = createToonGradientMap();
+
+	const toonify = ( mat ) => {
+
+		// Unlit materials (the free-roam moon, glow sprites, etc.) already
+		// read as flat shapes — leave them as-is rather than fighting them.
+		if ( ! mat || mat.isMeshToonMaterial || mat.isMeshBasicMaterial ) return mat;
+
+		return new THREE.MeshToonMaterial( {
+			color: mat.color ? mat.color.clone() : 0xffffff,
+			map: mat.map || null,
+			transparent: mat.transparent,
+			opacity: mat.opacity,
+			alphaTest: mat.alphaTest,
+			side: mat.side,
+			gradientMap,
+		} );
+
+	};
+
+	// Reassigning `.material` per mesh instance (rather than mutating the
+	// existing material object in place) leaves the original
+	// MeshStandardMaterial cached on the shared GLTF `models` untouched —
+	// so a WEB or AR race started afterward still clones the normal PBR
+	// look, unaffected by this race having used كوميك mode.
+	root.traverse( ( obj ) => {
+
+		if ( ! obj.isMesh ) return;
+		obj.material = Array.isArray( obj.material ) ? obj.material.map( toonify ) : toonify( obj.material );
+
+	} );
+
+}
+
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, comicStyle } ) {
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
@@ -3856,6 +3935,33 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	}
 
+	// كوميك mode: swap the whole scene's materials for the toon look right
+	// now (everything track/vehicle/AI-related is already built above), and
+	// load OutlineEffect lazily. It's a dynamic import — rather than a
+	// static one at the top of the file — specifically so that if this one
+	// addon ever fails to resolve, only كوميك mode degrades (toon shading
+	// without outlines); WEB and AR never depend on it and can't be taken
+	// down by it.
+	let outlineEffect = null;
+	if ( comicStyle ) {
+
+		applyComicStyle( scene );
+		import( 'three/addons/effects/OutlineEffect.js' )
+			.then( ( { OutlineEffect } ) => {
+
+				outlineEffect = new OutlineEffect( renderer, {
+					defaultThickness: 0.012, defaultColor: [ 0, 0, 0 ], defaultAlpha: 1, defaultKeepAlive: true,
+				} );
+
+			} )
+			.catch( ( e ) => {
+
+				console.warn( '[main] كوميك mode: outline effect failed to load, continuing without outlines:', e );
+
+			} );
+
+	}
+
 	return {
 
 		frameUpdate( dt ) {
@@ -3949,7 +4055,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 						// near the top of init() (sessionStorage key 'hwRestartRace').
 						try {
 
-							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, vehicleKey, flagImage } ) );
+							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, vehicleKey, flagImage, comicStyle } ) );
 
 						} catch ( e ) { /* ignore — falls back to showing the menu again */ }
 						location.reload();
@@ -3979,7 +4085,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
 
-			renderer.render( scene, cam.camera );
+			if ( outlineEffect ) outlineEffect.render( scene, cam.camera );
+			else renderer.render( scene, cam.camera );
 
 		}
 
@@ -6373,7 +6480,7 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise, comicStyle } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
@@ -6403,7 +6510,7 @@ async function init() {
 
 			try {
 
-				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
+				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, comicStyle } );
 				break;
 
 			} catch ( e ) {
