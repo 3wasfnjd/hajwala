@@ -3972,13 +3972,12 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	dirLight.target = vehicleGroup;
 
-	// Free-roam ("الحلبة") chase cam — repeated feedback (3 → 2 → 1.5 →
-	// 0.75, "قرب بعد ضعفين" i.e. halve it again) has walked this all the
-	// way past the classic track mode's own default of 1: this is now
-	// CLOSER than track mode, not just less-far. far/near stay wide enough
-	// for the open arena to not clip even though the cam itself sits
-	// close in. WEB/AR keep the original isometric offset.
-	const cam = freeRoam ? new Camera( { distanceScale: 0.75, far: 250, near: 2 } ) : new Camera();
+	// Free-roam ("الحلبة") chase cam — feedback walked this down to 0.75
+	// (closer than the classic track mode's own default of 1), then back
+	// out a touch to 0.9 ("تبعد شوي") once that read as slightly too
+	// tight. far/near stay wide enough for the open arena to not clip
+	// either way. WEB/AR keep the original isometric offset.
+	const cam = freeRoam ? new Camera( { distanceScale: 0.9, far: 250, near: 2 } ) : new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
