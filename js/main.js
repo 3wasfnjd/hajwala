@@ -660,15 +660,15 @@ function createModeMenu( { arAvailable } ) {
 		menu.dir = 'rtl';
 
 		const VEHICLE_OPTIONS = [
+			{ key: 'vehicle-jeep', label: 'شاص', thumb: 'images/menu/thumb-jeep.png' },
 			{ key: 'vehicle-truck-black', label: 'اف جي', thumb: 'images/menu/thumb-black.png' },
 			{ key: 'vehicle-camry', label: 'كامري', thumb: 'images/menu/thumb-camry.png' },
 			{ key: 'vehicle-camaro', label: 'كامارو', thumb: 'images/menu/thumb-camaro.png' },
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
-			{ key: 'vehicle-jeep', label: 'شاص', thumb: 'images/menu/thumb-jeep.png' },
 		];
-		let selectedVehicleIndex = 0; // black ("اف جي") is the default car — back at index 0 after the reorder
+		let selectedVehicleIndex = 0; // شاص is the default car — first in the list
 		let customTextValue = '';
 		let flagImageDataUrl = null;
 
