@@ -31,7 +31,7 @@ export class Camera {
 	// mode never sets this, so its own update() branch is untouched.
 	constructor( {
 		distanceScale = 1, far = 60, near = 0.1,
-		chaseHeading = false, chaseDistance = 6, chaseHeight = 2.6, chaseLookAhead = 4,
+		chaseHeading = false, chaseDistance = 6, chaseHeight = 1.8, chaseLookAhead = 4,
 	} = {} ) {
 
 		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, near, far );
