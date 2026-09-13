@@ -4305,31 +4305,27 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	}
 
-	// كوميك mode: swap the whole scene's materials for the toon look right
-	// now (everything track/vehicle/AI-related is already built above), then
-	// load ShaderPass (for the reference-image duotone pass below) lazily.
-	// A dynamic import — rather than a static one at the top of the file —
-	// specifically so that if this addon ever fails to resolve, only كوميك
-	// mode degrades; WEB and AR never depend on it and can't be taken down
-	// by it.
+	// كوميك mode: load ShaderPass (for the reference-image duotone pass
+	// below) lazily. A dynamic import — rather than a static one at the top
+	// of the file — specifically so that if this addon ever fails to
+	// resolve, only كوميك mode degrades; WEB and AR never depend on it and
+	// can't be taken down by it.
 	//
-	// OutlineEffect is NOT used here (comicStyle always builds
-	// buildComicRoadWorld()'s road-kit world below): its inverted-hull
-	// technique extrudes every mesh along its own normal by a fixed
-	// thickness, and the road-kit tiles layer their asphalt/curb/lane-line
-	// surfaces only ~0.02-0.05 units apart — thinner than that extrusion —
-	// so the raised black backface duplicates z-fight with and cover
-	// neighboring surfaces across the WHOLE tiled area instead of staying
-	// confined to each shape's silhouette edge (confirmed: solid black
-	// ground with OutlineEffect active, correct with it removed — see
-	// buildComicRoadWorld()'s own comment for the full story, including a
-	// two-scene composite attempt that didn't pan out). Toon shading and
-	// the duotone pass below are unaffected and still give كوميك mode most
-	// of its look; only the ink-outline layer is missing.
+	// Neither the toon-material conversion (applyComicStyle) nor
+	// OutlineEffect are used here (comicStyle always builds
+	// buildComicRoadWorld()'s road-kit world below): OutlineEffect's
+	// inverted-hull technique extrudes every mesh along its own normal by a
+	// fixed thickness, and the road-kit tiles layer their asphalt/curb/
+	// lane-line surfaces only ~0.02-0.05 units apart — thinner than that
+	// extrusion — so the raised black backface duplicates z-fight with and
+	// cover neighboring surfaces across the WHOLE tiled area instead of
+	// staying confined to each shape's silhouette edge (confirmed: solid
+	// black ground with OutlineEffect active, correct with it removed —
+	// see buildComicRoadWorld()'s own comment for the full story). The
+	// toon conversion was dropped by request, keeping the road-kit models'
+	// own materials; only the duotone pass below still applies.
 	let outlineEffect = null;
 	if ( comicStyle ) {
-
-		applyComicStyle( scene );
 
 		// Matches the reference image's pale pink sky rather than either
 		// branch's own daylight-gray or free-roam night-arena background —
