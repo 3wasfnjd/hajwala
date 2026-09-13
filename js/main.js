@@ -2356,6 +2356,22 @@ function addVehicleFlag( vehicle, imageUrl ) {
 	}
 
 	const flag = createFlag( imageUrl );
+
+	// vehicle-jeep needs an unusually large wrapper scale (1.75, vs the
+	// truck/Camaro's 0.5) to reach the same in-game footprint from its own
+	// much smaller raw model — Flag.js's pole/cloth are fixed absolute
+	// sizes, calibrated to look right at that ~0.5 reference scale, so
+	// riding along with the jeep's own much bigger wrapper scale ballooned
+	// the whole flag (pole included) up disproportionately, towering over
+	// the truck bed instead of a natural rear-corner flag — reported both
+	// as "the flag looks wrong" and "its size is big". Counter-scaling it
+	// back down to the same effective size as the reference vehicles fixes
+	// both at once (a correctly-sized flag reads as leaning at FLAG_YAW
+	// like every other vehicle's; a giant one cropped up close just looked
+	// like a bare vertical pole). Every other vehicle is untouched.
+	const vehicleKeyForFlag = vehicleModel.userData && vehicleModel.userData.vehicleKey;
+	if ( vehicleKeyForFlag === 'vehicle-jeep' ) flag.group.scale.setScalar( 0.5 / VEHICLE_SCALE_OVERRIDES[ vehicleKeyForFlag ] );
+
 	// Pole planted right at the rear bumper — pulled left (clear of the
 	// bumper's width) and just past its depth, not floating away from it.
 	const flagPosition = new THREE.Vector3( ...layout.flag );
