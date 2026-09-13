@@ -5,6 +5,15 @@ const _delta = new THREE.Vector3();
 const _lookPoint = new THREE.Vector3();
 const _forward = new THREE.Vector3();
 
+function lerpAngle( a, b, t ) {
+
+	let diff = b - a;
+	while ( diff > Math.PI ) diff -= Math.PI * 2;
+	while ( diff < -Math.PI ) diff += Math.PI * 2;
+	return a + diff * t;
+
+}
+
 export class Camera {
 
 	// distanceScale: uniform multiplier on the base chase-cam offset — keeps
@@ -31,7 +40,7 @@ export class Camera {
 	// mode never sets this, so its own update() branch is untouched.
 	constructor( {
 		distanceScale = 1, far = 60, near = 0.1,
-		chaseHeading = false, chaseDistance = 6, chaseHeight = 1.8, chaseLookAhead = 4,
+		chaseHeading = false, chaseDistance = 6, chaseHeight = 1.8, chaseLookAhead = 4, chaseYawSmoothing = 3.5,
 	} = {} ) {
 
 		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, near, far );
@@ -40,6 +49,11 @@ export class Camera {
 		this.chaseDistance = chaseDistance;
 		this.chaseHeight = chaseHeight;
 		this.chaseLookAhead = chaseLookAhead;
+		// How quickly the camera's OWN facing catches up to the car's heading
+		// — see update()'s chaseHeading branch for why this is smoothed
+		// separately from the raw heading instead of following it 1:1.
+		this.chaseYawSmoothing = chaseYawSmoothing;
+		this._chaseYaw = null;
 
 		// Matches Godot View: 45° azimuth, 35° elevation, distance 16 (×distanceScale)
 		this.offset = new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );
@@ -93,6 +107,21 @@ export class Camera {
 			_forward.set( 0, 0, 1 ).applyQuaternion( heading );
 			_forward.y = 0;
 			if ( _forward.lengthSq() > 1e-6 ) _forward.normalize(); else _forward.set( 0, 0, 1 );
+
+			// The car's raw heading whips around fast during a drift/tight
+			// steering input — following it directly (as this used to)
+			// swings the camera itself around in lockstep, which read as
+			// "the camera moves with the steering" instead of a settled
+			// rear-view shot. Smoothing the YAW ANGLE here (not just the
+			// resulting position below) makes the camera's own facing lag
+			// behind and catch up gradually, like a real chase camera,
+			// instead of snapping to match the car's instantaneous heading
+			// every frame.
+			const rawYaw = Math.atan2( _forward.x, _forward.z );
+			if ( this._chaseYaw === null ) this._chaseYaw = rawYaw;
+			const yawAlpha = 1 - Math.exp( - dt * this.chaseYawSmoothing );
+			this._chaseYaw = lerpAngle( this._chaseYaw, rawYaw, yawAlpha );
+			_forward.set( Math.sin( this._chaseYaw ), 0, Math.cos( this._chaseYaw ) );
 
 			_desired.copy( target ).addScaledVector( _forward, - this.chaseDistance );
 			_desired.y = target.y + this.chaseHeight;
