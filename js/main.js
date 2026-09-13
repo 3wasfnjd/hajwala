@@ -3974,10 +3974,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	// Free-roam ("الحلبة") still pulls the chase cam back a bit further
 	// than the classic track mode's tighter default view, so more of the
-	// open arena stays visible at once — 2 instead of the original 3
-	// brings it noticeably closer per feedback, without going all the way
+	// open arena stays visible at once — 1.5 (down from 3, then 2) per
+	// repeated feedback asking it closer still, without going all the way
 	// back to the track's own 1. WEB/AR keep the original isometric offset.
-	const cam = freeRoam ? new Camera( { distanceScale: 2, far: 250, near: 2 } ) : new Camera();
+	const cam = freeRoam ? new Camera( { distanceScale: 1.5, far: 250, near: 2 } ) : new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
