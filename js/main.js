@@ -191,7 +191,7 @@ const loader = new ColorMapGLTFLoader();
 
 const modelNames = [
 	'vehicle-truck-yellow', 'vehicle-truck-green', 'vehicle-truck-black', 'vehicle-truck-red', 'vehicle-truck-purple',
-	'vehicle-camry', 'vehicle-camaro',
+	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 ];
@@ -204,9 +204,13 @@ const modelNames = [
 // footprint as the existing truck (real length ≈ 1.4m post-scale) — a
 // touch longer, since a sedan/muscle car reasonably is one. Any
 // vehicle-* name not listed here still falls back to the 0.5 default.
+// vehicle-jeep.glb (a decimated single-mesh model, ~14k triangles) measures
+// a 1.0-unit raw length; 1.4 brings it to the same ≈1.4m in-game footprint
+// as the truck/Camry above.
 const VEHICLE_SCALE_OVERRIDES = {
 	'vehicle-camry': 0.33,
 	'vehicle-camaro': 0.5,
+	'vehicle-jeep': 1.4,
 };
 
 // vehicle-camry.glb was authored front-to-back reversed relative to the
@@ -640,6 +644,7 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
+			{ key: 'vehicle-jeep', label: 'جيب', thumb: 'images/menu/thumb-jeep.png' },
 		];
 		let selectedVehicleIndex = 0; // black ("اف جي") is the default car — back at index 0 after the reorder
 		let customTextValue = '';
@@ -742,7 +747,7 @@ function createModeMenu( { arAvailable } ) {
 
 			const dot = document.createElement( 'span' );
 			dot.className = `hw-car-dot c-${ i }`;
-			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-green': '#3ba85c', 'vehicle-camry': '#2b3a55', 'vehicle-camaro': '#141414' }[ opt.key ] || '#666';
+			dot.style.background = { 'vehicle-truck-black': '#171717', 'vehicle-truck-red': '#e03b3b', 'vehicle-truck-yellow': '#e8c23b', 'vehicle-truck-green': '#3ba85c', 'vehicle-camry': '#2b3a55', 'vehicle-camaro': '#141414', 'vehicle-jeep': '#c9bb8e' }[ opt.key ] || '#666';
 			dot.addEventListener( 'click', () => {
 
 				selectedVehicleIndex = i;
@@ -2209,8 +2214,30 @@ const CAMARO_LAYOUT = {
 	],
 };
 
+// vehicle-jeep.glb has no dedicated headlight/taillight graphics to sample
+// (unlike Camry/Camaro above) — its own body/cab proportions are close
+// enough to the truck's that TRUCK_LAYOUT's fractions-of-the-vehicle's-own-
+// bounding-box (each value ÷ the truck's own halfWidth=0.75/height=1.3/
+// halfLength=1.4) carry over reasonably, just reapplied against the jeep's
+// own measured bounds (halfWidth=0.213, height=0.406, halfLength=0.5).
+const JEEP_LAYOUT = {
+	headlightLens: [ 0.113, 0.225, 0.507 ],
+	taillight: [ 0.113, 0.274, -0.475 ],
+	reverseLight: [ 0.071, 0.206, -0.479 ],
+	flag: [ -0.170, 0.185, -0.485 ],
+	windshieldDecal: [ 0, 0.206, 0.205 ],
+	tailgateDecal: [ 0, 0.206, -0.5 ],
+	headlightSpot: [ 0.113, 0.787, 0.629 ],
+	headlightSpotTarget: [ 0.113, 0.063, 6.43 ],
+	hazards: [
+		[ -0.113, 0.234, 0.536 ], [ 0.113, 0.234, 0.536 ],
+		[ -0.113, 0.274, -0.475 ], [ 0.113, 0.274, -0.475 ],
+	],
+};
+
 const VEHICLE_ADDON_LAYOUTS = {
 	'vehicle-camry': CAMRY_LAYOUT,
+	'vehicle-jeep': JEEP_LAYOUT,
 	'vehicle-camaro': CAMARO_LAYOUT,
 };
 
