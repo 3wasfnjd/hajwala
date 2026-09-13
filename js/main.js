@@ -218,7 +218,6 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'comic-road-straight', 'comic-road-corner', 'comic-road-intersection',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -650,7 +649,6 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-mode-card.web { box-shadow: 0 0 0 1px rgba(79,216,232,0.25) inset; }
 			#hajwalah-menu .hw-mode-card.vr { box-shadow: 0 0 0 1px rgba(180,95,232,0.3) inset; }
-			#hajwalah-menu .hw-mode-card.comic { box-shadow: 0 0 0 1px rgba(255,122,60,0.35) inset; }
 			#hajwalah-menu .hw-mode-card:disabled { opacity: 0.45; cursor: not-allowed; }
 			#hajwalah-menu .hw-mode-card img {
 				width: 48px; height: 48px; object-fit: contain; margin-bottom: 6px;
@@ -765,13 +763,6 @@ function createModeMenu( { arAvailable } ) {
 								<img src="images/menu/icon-web.png" alt="WEB" />
 								<div class="hw-m-label">WEB</div>
 								<div class="hw-m-sub">لمس أو كيبورد</div>
-							</button>
-							<button class="hw-mode-card comic hw-comic-btn">
-								<svg viewBox="0 0 24 24" fill="#FF7A3C" stroke="none">
-									<path d="M13 2 4 14h6l-1 8 9-12h-6z"/>
-								</svg>
-								<div class="hw-m-label">كوميك</div>
-								<div class="hw-m-sub">أسلوب كرتوني</div>
 							</button>
 						</div>
 					</div>
@@ -968,15 +959,10 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
-		// ─── Mode navigation (WEB and كوميك both reveal the same track/
-		// free-roam choice; VR enters the AR session directly) — same
-		// two-step flow as before, just reskinned into the new panel.
-		// كوميك is NORMAL mode with `comicStyle: true` tacked onto the
-		// resolved choice — a toon-shaded, ink-outlined visual style
-		// applied only inside startNormalMode when that flag is set, so
-		// WEB and VR render exactly as before. ───
+		// ─── Mode navigation (WEB reveals the track/free-roam choice; VR
+		// enters the AR session directly) — same two-step flow as before,
+		// just reskinned into the new panel. ───
 		const webBtn = menu.querySelector( '.hw-web-btn' );
-		const comicBtn = menu.querySelector( '.hw-comic-btn' );
 		const arEntryBtn = menu.querySelector( '.hw-ar-entry-btn' );
 		const stepTop = menu.querySelector( '.hw-step-top' );
 		const stepWeb = menu.querySelector( '.hw-step-web' );
@@ -984,18 +970,14 @@ function createModeMenu( { arAvailable } ) {
 		const webFreeBtn = menu.querySelector( '.hw-web-free-btn' );
 		const backLinkWeb = menu.querySelector( '.hw-back-link-web' );
 
-		let pendingComicStyle = false;
+		function revealStepWeb() {
 
-		function revealStepWeb( comicStyle ) {
-
-			pendingComicStyle = comicStyle;
 			stepTop.classList.add( 'hidden' );
 			stepWeb.classList.remove( 'hidden' );
 
 		}
 
-		webBtn.addEventListener( 'click', () => revealStepWeb( false ) );
-		comicBtn.addEventListener( 'click', () => revealStepWeb( true ) );
+		webBtn.addEventListener( 'click', () => revealStepWeb() );
 
 		backLinkWeb.addEventListener( 'click', ( e ) => {
 
@@ -1013,7 +995,6 @@ function createModeMenu( { arAvailable } ) {
 			resolve( {
 				choice: 'normal', customText: customTextValue.trim(), freeRoam,
 				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl,
-				comicStyle: pendingComicStyle,
 			} );
 
 		}
@@ -1327,10 +1308,7 @@ function createGlowTexture( color ) {
 
 // ─── Free-roam circuit environment (asphalt + grandstands) ──
 
-// comicStyle skips the speckle grain below entirely — a flat poster-style
-// fill instead of a busy photographic-looking surface, matching كوميك
-// mode's toon-shaded models instead of clashing with them.
-function createAsphaltTexture( comicStyle = false ) {
+function createAsphaltTexture() {
 
 	const size = 256;
 	const canvas = document.createElement( 'canvas' );
@@ -1344,16 +1322,12 @@ function createAsphaltTexture( comicStyle = false ) {
 	ctx.fillStyle = '#3a3a40';
 	ctx.fillRect( 0, 0, size, size );
 
-	if ( ! comicStyle ) {
+	for ( let i = 0; i < 1400; i ++ ) {
 
-		for ( let i = 0; i < 1400; i ++ ) {
-
-			const x = Math.random() * size, y = Math.random() * size;
-			const v = 20 + Math.random() * 30;
-			ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.25 + Math.random() * 0.3 })`;
-			ctx.fillRect( x, y, 1.4, 1.4 );
-
-		}
+		const x = Math.random() * size, y = Math.random() * size;
+		const v = 20 + Math.random() * 30;
+		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.25 + Math.random() * 0.3 })`;
+		ctx.fillRect( x, y, 1.4, 1.4 );
 
 	}
 
@@ -1367,10 +1341,7 @@ function createAsphaltTexture( comicStyle = false ) {
 // points scattered across the open paved area, loosely evoking street
 // lane markings (useful even with the barrier/stand dressing, since the
 // middle of a large arena can still feel empty without them).
-
-// comicStyle: see createAsphaltTexture above — same reasoning, flat fill
-// with no grain/streaks instead of the realistic sand look.
-function createSandTexture( comicStyle = false ) {
+function createSandTexture() {
 
 	const size = 256;
 	const canvas = document.createElement( 'canvas' );
@@ -1379,30 +1350,26 @@ function createSandTexture( comicStyle = false ) {
 	ctx.fillStyle = '#c9a877';
 	ctx.fillRect( 0, 0, size, size );
 
-	if ( ! comicStyle ) {
+	for ( let i = 0; i < 2200; i ++ ) {
 
-		for ( let i = 0; i < 2200; i ++ ) {
+		const x = Math.random() * size, y = Math.random() * size;
+		const v = Math.random();
+		const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
+		ctx.fillStyle = shade;
+		ctx.fillRect( x, y, 1.6, 1.6 );
 
-			const x = Math.random() * size, y = Math.random() * size;
-			const v = Math.random();
-			const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
-			ctx.fillStyle = shade;
-			ctx.fillRect( x, y, 1.6, 1.6 );
+	}
 
-		}
+	// Faint wind-ripple streaks
+	ctx.strokeStyle = 'rgba(120,95,60,0.08)';
+	ctx.lineWidth = 2;
+	for ( let i = 0; i < 18; i ++ ) {
 
-		// Faint wind-ripple streaks
-		ctx.strokeStyle = 'rgba(120,95,60,0.08)';
-		ctx.lineWidth = 2;
-		for ( let i = 0; i < 18; i ++ ) {
-
-			const y = Math.random() * size;
-			ctx.beginPath();
-			ctx.moveTo( 0, y );
-			ctx.bezierCurveTo( size * 0.3, y + ( Math.random() - 0.5 ) * 20, size * 0.7, y + ( Math.random() - 0.5 ) * 20, size, y );
-			ctx.stroke();
-
-		}
+		const y = Math.random() * size;
+		ctx.beginPath();
+		ctx.moveTo( 0, y );
+		ctx.bezierCurveTo( size * 0.3, y + ( Math.random() - 0.5 ) * 20, size * 0.7, y + ( Math.random() - 0.5 ) * 20, size, y );
+		ctx.stroke();
 
 	}
 
@@ -3732,260 +3699,16 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 
 }
 
-// ─── كوميك MODE helpers ─────────────────────────────────────
-// Turns the already-built NORMAL-mode scene into a flat, ink-outlined
-// comic-book look: every lit mesh's PBR material becomes a banded
-// MeshToonMaterial, and OutlineEffect layers a black inverted-hull outline
-// on top at render time. Only called when `comicStyle` is set — WEB and AR
-// never touch this code, so their look is untouched.
-
-function createToonGradientMap() {
-
-	// A tiny 1D lookup texture: MeshToonMaterial samples it by
-	// dot(normal, light) instead of shading continuously, producing the
-	// "flat ink-shaded" bands instead of a smooth PBR gradient. Nearest
-	// filtering keeps the bands crisp instead of blurring them together.
-	const colors = new Uint8Array( [ 60, 130, 195, 255 ] );
-	const gradientMap = new THREE.DataTexture( colors, colors.length, 1, THREE.RedFormat );
-	gradientMap.needsUpdate = true;
-	gradientMap.minFilter = THREE.NearestFilter;
-	gradientMap.magFilter = THREE.NearestFilter;
-	gradientMap.generateMipmaps = false;
-	return gradientMap;
-
-}
-
-function applyComicStyle( root ) {
-
-	const gradientMap = createToonGradientMap();
-
-	const toonify = ( mat ) => {
-
-		// Unlit materials (the free-roam moon, glow sprites, etc.) already
-		// read as flat shapes — leave them as-is rather than fighting them.
-		if ( ! mat || mat.isMeshToonMaterial || mat.isMeshBasicMaterial ) return mat;
-
-		return new THREE.MeshToonMaterial( {
-			color: mat.color ? mat.color.clone() : 0xffffff,
-			map: mat.map || null,
-			transparent: mat.transparent,
-			opacity: mat.opacity,
-			alphaTest: mat.alphaTest,
-			side: mat.side,
-			gradientMap,
-		} );
-
-	};
-
-	// Reassigning `.material` per mesh instance (rather than mutating the
-	// existing material object in place) leaves the original
-	// MeshStandardMaterial cached on the shared GLTF `models` untouched —
-	// so a WEB or AR race started afterward still clones the normal PBR
-	// look, unaffected by this race having used كوميك mode.
-	root.traverse( ( obj ) => {
-
-		if ( ! obj.isMesh ) return;
-		obj.material = Array.isArray( obj.material ) ? obj.material.map( toonify ) : toonify( obj.material );
-
-	} );
-
-}
-
-// A full-screen posterize pass, layered on top of the per-object toon
-// shading + outline above, so the final frame matches the reference
-// poster's look: everything remapped by brightness alone into 3-4 flat
-// bands (near-black shapes/shadows, one dominant saturated red-orange,
-// a pale warm highlight, a thin sliver of pure white for hot specular
-// points) instead of each object's own hue. Deliberately collapses paint-
-// color differences between vehicles — that's the reference image's actual
-// look, not a bug — and only ever runs inside كوميك mode.
-const COMIC_DUOTONE_SHADER = {
-	uniforms: {
-		tDiffuse: { value: null },
-		colorDark: { value: new THREE.Color( 0x1a1210 ) },
-		colorMid: { value: new THREE.Color( 0xe14a2c ) },
-		colorLight: { value: new THREE.Color( 0xf7c2ae ) },
-		colorHighlight: { value: new THREE.Color( 0xffffff ) },
-	},
-	vertexShader: `
-		varying vec2 vUv;
-		void main() {
-			vUv = uv;
-			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-		}
-	`,
-	fragmentShader: `
-		uniform sampler2D tDiffuse;
-		uniform vec3 colorDark;
-		uniform vec3 colorMid;
-		uniform vec3 colorLight;
-		uniform vec3 colorHighlight;
-		varying vec2 vUv;
-		void main() {
-			vec4 texel = texture2D( tDiffuse, vUv );
-			float lum = dot( texel.rgb, vec3( 0.299, 0.587, 0.114 ) );
-			vec3 outColor;
-			if ( lum < 0.22 ) outColor = colorDark;
-			else if ( lum < 0.75 ) outColor = colorMid;
-			else if ( lum < 0.94 ) outColor = colorLight;
-			else outColor = colorHighlight;
-			gl_FragColor = vec4( outColor, texel.a );
-		}
-	`,
-};
-
-// ─── كوميك mode's own road-kit world ───────────────────────
-// A dedicated street layout for كوميك mode, built from 3 small road-kit
-// models (straight/corner/intersection, each a flat 10-unit-square tile
-// with its own baked sand-shoulder + asphalt + curb + lane-line
-// materials) instead of the classic GridMap track or the free-roam
-// night-arena — an explicit request for "a street with an intersection
-// and a corner and an open area with no barriers" as كوميك's own space,
-// not a reskin of either existing one.
-const COMIC_ROAD_CELL = 10;
-
-// [col, row, type, rotationSteps] — a rounded-rectangle loop (2 straights
-// per long side, a corner at each of the 4 turns) with the intersection
-// spliced into the bottom side; its free 4th arm pokes south into the
-// open ground as a stub. rotationSteps × 90°. Each corner's step count
-// was picked by actually rendering the assembled layout top-down and
-// checking the ASPHALT PATHS connect edge to edge — the tiles' own
-// footprints tile seamlessly at any rotation (they're plain 10×10
-// squares), but the road drawn on top of each corner only lines up with
-// its neighbors at one specific rotation.
-const COMIC_ROAD_LAYOUT = [
-	[ 0, 0, 'corner', 2 ], [ 1, 0, 'straight', 1 ], [ 2, 0, 'straight', 1 ], [ 3, 0, 'straight', 1 ], [ 4, 0, 'corner', 1 ],
-	[ 0, 1, 'straight', 0 ], [ 4, 1, 'straight', 0 ], // (1,1)-(3,1) left empty — the loop's own open middle island
-	[ 0, 2, 'corner', 3 ], [ 1, 2, 'intersection', 0 ], [ 2, 2, 'straight', 1 ], [ 3, 2, 'straight', 1 ], [ 4, 2, 'corner', 0 ],
-];
-
-// كوميك mode's inverted-hull OutlineEffect extrudes each mesh along its
-// own normal by a fixed world-space thickness. These road-kit tiles layer
-// their asphalt/curb/lane-line surfaces only ~0.02-0.05 units apart —
-// thin enough, combined with them tiling edge-to-edge over a large flat
-// area, that the raised black backface duplicates from that extrusion
-// z-fight with and cover neighboring surfaces across the WHOLE area
-// instead of staying confined to each shape's own silhouette edge
-// (confirmed: toon shading + the duotone pass both look correct with
-// OutlineEffect removed; either alone with OutlineEffect still active
-// reproduces the solid-black ground). A two-scene composite (this world
-// rendered plain, the rest outlined, drawn on top) turned out to fight
-// the renderer's own custom setEffects() bloom/duotone chain in ways
-// that broke that too — every render() call apparently re-triggers its
-// full post-process compositing, so a second call overwrites the first
-// pass entirely rather than layering over it. Simplest reliable fix:
-// this world just never gets outlined at all — see startNormalMode()'s
-// own comicStyle block, which skips creating OutlineEffect specifically
-// when this road world is what's built. Toon shading and the duotone
-// pass still apply normally; only the ink-outline layer is missing here.
-function buildComicRoadWorld( scene, models, world ) {
-
-	const cols = 5, rows = 3;
-	// Centers the whole loop on the world origin instead of the road
-	// kit's own authored corner-at-(0,0) coordinate space.
-	const offsetX = - ( cols * COMIC_ROAD_CELL ) / 2;
-	const offsetZ = - ( rows * COMIC_ROAD_CELL ) / 2;
-
-	const sources = {
-		straight: models[ 'comic-road-straight' ],
-		corner: models[ 'comic-road-corner' ],
-		intersection: models[ 'comic-road-intersection' ],
-	};
-
-	for ( const [ col, row, type, steps ] of COMIC_ROAD_LAYOUT ) {
-
-		const inst = sources[ type ].clone( true );
-		// Rotate around the TILE'S OWN CENTER, not its local origin (one
-		// corner of its 10x10 footprint) — a pivot centered on the cell,
-		// with the model shifted back by half a cell inside it, so
-		// rotation.y on the pivot swings the road path in place instead
-		// of into a different quadrant.
-		const pivot = new THREE.Group();
-		pivot.position.set(
-			offsetX + col * COMIC_ROAD_CELL + COMIC_ROAD_CELL / 2, 0,
-			offsetZ + row * COMIC_ROAD_CELL + COMIC_ROAD_CELL / 2
-		);
-		pivot.rotation.y = steps * ( Math.PI / 2 );
-		inst.position.set( - COMIC_ROAD_CELL / 2, 0, - COMIC_ROAD_CELL / 2 );
-		pivot.add( inst );
-		scene.add( pivot );
-
-	}
-
-	// Open ground filling the loop's own middle island and extending well
-	// past its outer edge — no perimeter barriers at all, per the request
-	// (drive off the marked road onto open sand freely). Sits just below
-	// the road tiles' own authored bottom (y=0) so it never pokes through
-	// their surface; a flat static box covers the same footprint for
-	// physics — the tiles themselves carry no collision, they're a
-	// decal-like decoration over this one floor.
-	const groundHalfX = cols * COMIC_ROAD_CELL * 0.9;
-	const groundHalfZ = rows * COMIC_ROAD_CELL * 1.4;
-	const sandTexture = createSandTexture( true );
-	sandTexture.repeat.set( groundHalfX / 5, groundHalfZ / 5 );
-	// polygonOffset pushes this plane's rasterized depth slightly further
-	// from the camera than its literal position implies — needed because
-	// it sits only 0.02-0.05 units below the tiles' own sand/asphalt
-	// quads (see comment above), a gap thin enough that ordinary
-	// depth-buffer precision loss at range/grazing angles can flip which
-	// surface wins on some GPUs even though it never does on others,
-	// intermittently hiding the tiles under this "filler" ground instead
-	// of it staying safely behind them. This bias is a standard, position-
-	// independent fix for exactly that class of near-coplanar z-fighting.
-	const groundMaterial = new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1, metalness: 0 } );
-	groundMaterial.polygonOffset = true;
-	groundMaterial.polygonOffsetFactor = 4;
-	groundMaterial.polygonOffsetUnits = 4;
-	const groundMesh = new THREE.Mesh( new THREE.PlaneGeometry( groundHalfX * 2, groundHalfZ * 2 ), groundMaterial );
-	groundMesh.rotation.x = - Math.PI / 2;
-	groundMesh.position.set( 0, - 0.02, 0 );
-	scene.add( groundMesh );
-
-	rigidBody.create( world, {
-		shape: box.create( { halfExtents: [ groundHalfX, 0.01, groundHalfZ ] } ),
-		motionType: MotionType.STATIC,
-		objectLayer: world._OL_STATIC,
-		position: [ 0, - 0.03, 0 ],
-		friction: 3.0,
-		restitution: 0.0,
-	} );
-
-	return { groundHalfX, groundHalfZ };
-
-}
-
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, comicStyle } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
 	let trackPath = null, aiDrivers = [], aiExtras = [];
 	let freeRoamHalf = 0;
 
-	if ( comicStyle ) {
-
-		// كوميك's own dedicated world (see buildComicRoadWorld() above) —
-		// takes over regardless of the menu's track/free-roam sub-choice,
-		// since this one street+open-area layout IS كوميك's whole space,
-		// not a reskin of either existing one. WEB/AR never reach this
-		// branch (comicStyle is only ever set from the كوميك menu button).
-		const { groundHalfX, groundHalfZ } = buildComicRoadWorld( scene, models, world );
-
-		aiDrivers = createFreeRoamAI(
-			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
-			models, scene, world, groundHalfX, groundHalfZ
-		);
-		freeRoamHalf = Math.max( groundHalfX, groundHalfZ );
-		aiExtras = setupWebAIExtras( aiDrivers, 'web-freeroam-ai' );
-
-		// On the left-side straight, facing south down the loop toward the
-		// intersection — see COMIC_ROAD_LAYOUT's own comment for why this
-		// tile sits at exactly (-20, 0).
-		vehicleSpawn = { position: [ -20, 0.5, 0 ], angle: 0 };
-		sphereBody = createSphereBody( world, vehicleSpawn.position );
-
-	} else if ( freeRoam ) {
+	if ( freeRoam ) {
 
 		// Open sandbox: no track, no walls — just a big flat ground.
 		const groundSize = 110;
@@ -4026,7 +3749,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		} );
 
 		// Visible asphalt ground, matching the invisible physics floor.
-		const asphaltTexture = createAsphaltTexture( comicStyle );
+		const asphaltTexture = createAsphaltTexture();
 		asphaltTexture.repeat.set( groundSize / 8, groundSize / 8 );
 		const groundMesh = new THREE.Mesh(
 			new THREE.PlaneGeometry( groundSize, groundSize ),
@@ -4086,7 +3809,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		// Dry desert surround, peeking out beyond the paved arena's edge —
 		// sits just below the asphalt so it only shows past its footprint.
-		const sandTexture = createSandTexture( comicStyle );
+		const sandTexture = createSandTexture();
 		const sandSize = groundSize * 2;
 		sandTexture.repeat.set( sandSize / 10, sandSize / 10 );
 		const sandMesh = new THREE.Mesh(
@@ -4251,22 +3974,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	// Free-roam ("الحلبة") pulls the chase cam back so a much larger part
 	// of the open arena is visible at once, instead of the classic track
-	// mode's tighter, closer-in default view. كوميك mode instead opts into
-	// a close third-person cam that stays right behind the car (see
-	// Camera's chaseHeading) — WEB/AR keep the original isometric offset.
-	const cam = comicStyle ? new Camera( { chaseHeading: true } )
-		: freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
+	// mode's tighter, closer-in default view. WEB/AR keep the original
+	// isometric offset.
+	const cam = freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
 
-	const particles = new SmokeTrails( scene, 1, 1, comicStyle );
+	const particles = new SmokeTrails( scene, 1, 1 );
 	// AI cars share ONE dedicated, deliberately light smoke emitter — same
 	// idea as the AR floating-track/arena fix that stopped the smoke
 	// freeze (real-world scale here, so scale stays 1, only emitMultiplier
 	// is cut) — separate from the player's own full-strength `particles`
 	// so AI stays a light background effect rather than competing with it.
-	const aiParticles = new SmokeTrails( scene, 1, 0.15, comicStyle );
+	const aiParticles = new SmokeTrails( scene, 1, 0.15 );
 	const driftMarks = new DriftMarks( scene, mapParam );
 
 	const audio = new GameAudio();
@@ -4312,55 +4033,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	if ( isRace ) {
 
 		lapTimer.onFinish = () => { raceState.phase = 'finished'; };
-
-	}
-
-	// كوميك mode: load ShaderPass (for the reference-image duotone pass
-	// below) lazily. A dynamic import — rather than a static one at the top
-	// of the file — specifically so that if this addon ever fails to
-	// resolve, only كوميك mode degrades; WEB and AR never depend on it and
-	// can't be taken down by it.
-	//
-	// Neither the toon-material conversion (applyComicStyle) nor
-	// OutlineEffect are used here (comicStyle always builds
-	// buildComicRoadWorld()'s road-kit world below): OutlineEffect's
-	// inverted-hull technique extrudes every mesh along its own normal by a
-	// fixed thickness, and the road-kit tiles layer their asphalt/curb/
-	// lane-line surfaces only ~0.02-0.05 units apart — thinner than that
-	// extrusion — so the raised black backface duplicates z-fight with and
-	// cover neighboring surfaces across the WHOLE tiled area instead of
-	// staying confined to each shape's silhouette edge (confirmed: solid
-	// black ground with OutlineEffect active, correct with it removed —
-	// see buildComicRoadWorld()'s own comment for the full story). The
-	// toon conversion was dropped by request, keeping the road-kit models'
-	// own materials; only the duotone pass below still applies.
-	let outlineEffect = null;
-	if ( comicStyle ) {
-
-		// Matches the reference image's pale pink sky rather than either
-		// branch's own daylight-gray or free-roam night-arena background —
-		// the duotone pass below buckets by brightness alone, so the sky
-		// needs to actually sit in the light band to read as that pale
-		// pink instead of getting lumped in with everything else.
-		scene.background = new THREE.Color( 0xf7c2ae );
-		scene.fog.color.set( 0xf7c2ae );
-
-		import( 'three/addons/postprocessing/ShaderPass.js' )
-			.then( ( { ShaderPass } ) => {
-
-				// Layered after bloom, on top of the existing global effects
-				// chain — matches the reference image's flattened, few-tone
-				// poster look as a final pass over everything toon-shaded
-				// above.
-				const duotonePass = new ShaderPass( COMIC_DUOTONE_SHADER );
-				renderer.setEffects( [ bloomPass, duotonePass ] );
-
-			} )
-			.catch( ( e ) => {
-
-				console.warn( '[main] كوميك mode: duotone post-processing failed to load, continuing with toon shading only:', e );
-
-			} );
 
 	}
 
@@ -4457,7 +4129,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 						// near the top of init() (sessionStorage key 'hwRestartRace').
 						try {
 
-							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, vehicleKey, flagImage, comicStyle } ) );
+							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, vehicleKey, flagImage } ) );
 
 						} catch ( e ) { /* ignore — falls back to showing the menu again */ }
 						location.reload();
@@ -4485,10 +4157,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead, vehicle.container.quaternion );
+			cam.update( dt, vehicle.spherePos, _camLead );
 
-			if ( outlineEffect ) outlineEffect.render( scene, cam.camera );
-			else renderer.render( scene, cam.camera );
+			renderer.render( scene, cam.camera );
 
 		}
 
@@ -6882,7 +6553,7 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise, comicStyle } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
@@ -6912,7 +6583,7 @@ async function init() {
 
 			try {
 
-				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, comicStyle } );
+				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
 				break;
 
 			} catch ( e ) {
