@@ -205,12 +205,19 @@ const modelNames = [
 // touch longer, since a sedan/muscle car reasonably is one. Any
 // vehicle-* name not listed here still falls back to the 0.5 default.
 // vehicle-jeep.glb (a decimated single-mesh model, ~14k triangles) measures
-// a 1.0-unit raw length; 1.4 brings it to the same ≈1.4m in-game footprint
-// as the truck/Camry above.
+// a 1.0-unit raw length — 1.4 there would match the truck's own final
+// LENGTH exactly, but a real Land Cruiser pickup's body is proportionally
+// slimmer than the truck's chunky, stylized Kenney model, so that still
+// read as visibly smaller in-game (confirmed feedback: driving felt right,
+// just looked too small next to the other cars). 1.75 instead matches the
+// truck's final WIDTH (0.75 = 1.5 truck-raw-width × 0.5), which reads as
+// the dominant "how big is this car" cue when passing/parked side by side;
+// the resulting length (1.75) comes out a bit longer than the truck's own
+// 1.4, which fits a real 4x4 pickup being a genuinely larger vehicle.
 const VEHICLE_SCALE_OVERRIDES = {
 	'vehicle-camry': 0.33,
 	'vehicle-camaro': 0.5,
-	'vehicle-jeep': 1.4,
+	'vehicle-jeep': 1.75,
 };
 
 // vehicle-camry.glb was authored front-to-back reversed relative to the
