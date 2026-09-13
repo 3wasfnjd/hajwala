@@ -218,6 +218,7 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
+	'comic-road-straight', 'comic-road-corner', 'comic-road-intersection',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -3833,6 +3834,116 @@ const COMIC_DUOTONE_SHADER = {
 	`,
 };
 
+// ─── كوميك mode's own road-kit world ───────────────────────
+// A dedicated street layout for كوميك mode, built from 3 small road-kit
+// models (straight/corner/intersection, each a flat 10-unit-square tile
+// with its own baked sand-shoulder + asphalt + curb + lane-line
+// materials) instead of the classic GridMap track or the free-roam
+// night-arena — an explicit request for "a street with an intersection
+// and a corner and an open area with no barriers" as كوميك's own space,
+// not a reskin of either existing one.
+const COMIC_ROAD_CELL = 10;
+
+// [col, row, type, rotationSteps] — a rounded-rectangle loop (2 straights
+// per long side, a corner at each of the 4 turns) with the intersection
+// spliced into the bottom side; its free 4th arm pokes south into the
+// open ground as a stub. rotationSteps × 90°. Each corner's step count
+// was picked by actually rendering the assembled layout top-down and
+// checking the ASPHALT PATHS connect edge to edge — the tiles' own
+// footprints tile seamlessly at any rotation (they're plain 10×10
+// squares), but the road drawn on top of each corner only lines up with
+// its neighbors at one specific rotation.
+const COMIC_ROAD_LAYOUT = [
+	[ 0, 0, 'corner', 2 ], [ 1, 0, 'straight', 1 ], [ 2, 0, 'straight', 1 ], [ 3, 0, 'straight', 1 ], [ 4, 0, 'corner', 1 ],
+	[ 0, 1, 'straight', 0 ], [ 4, 1, 'straight', 0 ], // (1,1)-(3,1) left empty — the loop's own open middle island
+	[ 0, 2, 'corner', 3 ], [ 1, 2, 'intersection', 0 ], [ 2, 2, 'straight', 1 ], [ 3, 2, 'straight', 1 ], [ 4, 2, 'corner', 0 ],
+];
+
+// كوميك mode's inverted-hull OutlineEffect extrudes each mesh along its
+// own normal by a fixed world-space thickness. These road-kit tiles layer
+// their asphalt/curb/lane-line surfaces only ~0.02-0.05 units apart —
+// thin enough, combined with them tiling edge-to-edge over a large flat
+// area, that the raised black backface duplicates from that extrusion
+// z-fight with and cover neighboring surfaces across the WHOLE area
+// instead of staying confined to each shape's own silhouette edge
+// (confirmed: toon shading + the duotone pass both look correct with
+// OutlineEffect removed; either alone with OutlineEffect still active
+// reproduces the solid-black ground). A two-scene composite (this world
+// rendered plain, the rest outlined, drawn on top) turned out to fight
+// the renderer's own custom setEffects() bloom/duotone chain in ways
+// that broke that too — every render() call apparently re-triggers its
+// full post-process compositing, so a second call overwrites the first
+// pass entirely rather than layering over it. Simplest reliable fix:
+// this world just never gets outlined at all — see startNormalMode()'s
+// own comicStyle block, which skips creating OutlineEffect specifically
+// when this road world is what's built. Toon shading and the duotone
+// pass still apply normally; only the ink-outline layer is missing here.
+function buildComicRoadWorld( scene, models, world ) {
+
+	const cols = 5, rows = 3;
+	// Centers the whole loop on the world origin instead of the road
+	// kit's own authored corner-at-(0,0) coordinate space.
+	const offsetX = - ( cols * COMIC_ROAD_CELL ) / 2;
+	const offsetZ = - ( rows * COMIC_ROAD_CELL ) / 2;
+
+	const sources = {
+		straight: models[ 'comic-road-straight' ],
+		corner: models[ 'comic-road-corner' ],
+		intersection: models[ 'comic-road-intersection' ],
+	};
+
+	for ( const [ col, row, type, steps ] of COMIC_ROAD_LAYOUT ) {
+
+		const inst = sources[ type ].clone( true );
+		// Rotate around the TILE'S OWN CENTER, not its local origin (one
+		// corner of its 10x10 footprint) — a pivot centered on the cell,
+		// with the model shifted back by half a cell inside it, so
+		// rotation.y on the pivot swings the road path in place instead
+		// of into a different quadrant.
+		const pivot = new THREE.Group();
+		pivot.position.set(
+			offsetX + col * COMIC_ROAD_CELL + COMIC_ROAD_CELL / 2, 0,
+			offsetZ + row * COMIC_ROAD_CELL + COMIC_ROAD_CELL / 2
+		);
+		pivot.rotation.y = steps * ( Math.PI / 2 );
+		inst.position.set( - COMIC_ROAD_CELL / 2, 0, - COMIC_ROAD_CELL / 2 );
+		pivot.add( inst );
+		scene.add( pivot );
+
+	}
+
+	// Open ground filling the loop's own middle island and extending well
+	// past its outer edge — no perimeter barriers at all, per the request
+	// (drive off the marked road onto open sand freely). Sits just below
+	// the road tiles' own authored bottom (y=0) so it never pokes through
+	// their surface; a flat static box covers the same footprint for
+	// physics — the tiles themselves carry no collision, they're a
+	// decal-like decoration over this one floor.
+	const groundHalfX = cols * COMIC_ROAD_CELL * 0.9;
+	const groundHalfZ = rows * COMIC_ROAD_CELL * 1.4;
+	const sandTexture = createSandTexture( true );
+	sandTexture.repeat.set( groundHalfX / 5, groundHalfZ / 5 );
+	const groundMesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( groundHalfX * 2, groundHalfZ * 2 ),
+		new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1, metalness: 0 } )
+	);
+	groundMesh.rotation.x = - Math.PI / 2;
+	groundMesh.position.set( 0, - 0.02, 0 );
+	scene.add( groundMesh );
+
+	rigidBody.create( world, {
+		shape: box.create( { halfExtents: [ groundHalfX, 0.01, groundHalfZ ] } ),
+		motionType: MotionType.STATIC,
+		objectLayer: world._OL_STATIC,
+		position: [ 0, - 0.03, 0 ],
+		friction: 3.0,
+		restitution: 0.0,
+	} );
+
+	return { groundHalfX, groundHalfZ };
+
+}
+
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
 function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, comicStyle } ) {
@@ -3842,7 +3953,29 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	let trackPath = null, aiDrivers = [], aiExtras = [];
 	let freeRoamHalf = 0;
 
-	if ( freeRoam ) {
+	if ( comicStyle ) {
+
+		// كوميك's own dedicated world (see buildComicRoadWorld() above) —
+		// takes over regardless of the menu's track/free-roam sub-choice,
+		// since this one street+open-area layout IS كوميك's whole space,
+		// not a reskin of either existing one. WEB/AR never reach this
+		// branch (comicStyle is only ever set from the كوميك menu button).
+		const { groundHalfX, groundHalfZ } = buildComicRoadWorld( scene, models, world );
+
+		aiDrivers = createFreeRoamAI(
+			NPC_TRUCKS.map( ( [ key ] ) => ( { key } ) ),
+			models, scene, world, groundHalfX, groundHalfZ
+		);
+		freeRoamHalf = Math.max( groundHalfX, groundHalfZ );
+		aiExtras = setupWebAIExtras( aiDrivers, 'web-freeroam-ai' );
+
+		// On the left-side straight, facing south down the loop toward the
+		// intersection — see COMIC_ROAD_LAYOUT's own comment for why this
+		// tile sits at exactly (-20, 0).
+		vehicleSpawn = { position: [ -20, 0.5, 0 ], angle: 0 };
+		sphereBody = createSphereBody( world, vehicleSpawn.position );
+
+	} else if ( freeRoam ) {
 
 		// Open sandbox: no track, no walls — just a big flat ground.
 		const groundSize = 110;
@@ -4174,11 +4307,25 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	// كوميك mode: swap the whole scene's materials for the toon look right
 	// now (everything track/vehicle/AI-related is already built above), then
-	// load OutlineEffect and ShaderPass (for the reference-image duotone
-	// pass below) lazily. Dynamic imports — rather than static ones at the
-	// top of the file — specifically so that if either addon ever fails to
-	// resolve, only كوميك mode degrades; WEB and AR never depend on them
-	// and can't be taken down by it.
+	// load ShaderPass (for the reference-image duotone pass below) lazily.
+	// A dynamic import — rather than a static one at the top of the file —
+	// specifically so that if this addon ever fails to resolve, only كوميك
+	// mode degrades; WEB and AR never depend on it and can't be taken down
+	// by it.
+	//
+	// OutlineEffect is NOT used here (comicStyle always builds
+	// buildComicRoadWorld()'s road-kit world below): its inverted-hull
+	// technique extrudes every mesh along its own normal by a fixed
+	// thickness, and the road-kit tiles layer their asphalt/curb/lane-line
+	// surfaces only ~0.02-0.05 units apart — thinner than that extrusion —
+	// so the raised black backface duplicates z-fight with and cover
+	// neighboring surfaces across the WHOLE tiled area instead of staying
+	// confined to each shape's silhouette edge (confirmed: solid black
+	// ground with OutlineEffect active, correct with it removed — see
+	// buildComicRoadWorld()'s own comment for the full story, including a
+	// two-scene composite attempt that didn't pan out). Toon shading and
+	// the duotone pass below are unaffected and still give كوميك mode most
+	// of its look; only the ink-outline layer is missing.
 	let outlineEffect = null;
 	if ( comicStyle ) {
 
@@ -4192,27 +4339,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		scene.background = new THREE.Color( 0xf7c2ae );
 		scene.fog.color.set( 0xf7c2ae );
 
-		Promise.all( [
-			import( 'three/addons/effects/OutlineEffect.js' ),
-			import( 'three/addons/postprocessing/ShaderPass.js' ),
-		] )
-			.then( ( [ { OutlineEffect }, { ShaderPass } ] ) => {
-
-				outlineEffect = new OutlineEffect( renderer, {
-					defaultThickness: 0.012, defaultColor: [ 0, 0, 0 ], defaultAlpha: 1, defaultKeepAlive: true,
-				} );
+		import( 'three/addons/postprocessing/ShaderPass.js' )
+			.then( ( { ShaderPass } ) => {
 
 				// Layered after bloom, on top of the existing global effects
 				// chain — matches the reference image's flattened, few-tone
-				// poster look as a final pass over everything toon-shaded/
-				// outlined above.
+				// poster look as a final pass over everything toon-shaded
+				// above.
 				const duotonePass = new ShaderPass( COMIC_DUOTONE_SHADER );
 				renderer.setEffects( [ bloomPass, duotonePass ] );
 
 			} )
 			.catch( ( e ) => {
 
-				console.warn( '[main] كوميك mode: outline/duotone post-processing failed to load, continuing with toon shading only:', e );
+				console.warn( '[main] كوميك mode: duotone post-processing failed to load, continuing with toon shading only:', e );
 
 			} );
 
