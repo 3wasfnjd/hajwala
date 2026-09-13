@@ -587,7 +587,16 @@ function createModeMenu( { arAvailable } ) {
 			#hajwalah-menu .hw-icon-slot .hw-mode-card img,
 			#hajwalah-menu .hw-icon-slot .hw-mode-card svg { margin-bottom: 0; }
 			#hajwalah-menu .hw-flag-clear-badge, #hajwalah-menu .hw-music-clear-badge {
-				position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; border-radius: 50%;
+				/* Inset (not overflowing past the button edge like the old
+				   top:-6px;left:-6px) — .hw-icon-panel clips overflow for its
+				   rounded corners, and RTL flips which icon-slot physically
+				   sits at the panel's left edge (the music icon, being last
+				   in DOM order, ends up there) — a badge hanging past that
+				   edge got clipped away entirely, invisible no matter how
+				   many files were picked. Sitting inside the button's own
+				   bounds is visible regardless of which slot ends up at
+				   which physical edge. */
+				position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
 				background: #ff5a5a; color: #fff; font-size: 12px; line-height: 17px; text-align: center;
 				border: 1px solid rgba(255,255,255,0.5); padding: 0; cursor: pointer; display: block;
 			}
