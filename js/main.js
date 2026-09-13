@@ -2247,7 +2247,11 @@ const CAMARO_LAYOUT = {
 // separate smaller lens next to it) sits further outboard than the
 // headlight, not level with it.
 const JEEP_LAYOUT = {
-	headlightLens: [ 0.122, 0.218, 0.507 ],
+	// z pulled back from 0.507 to sit right against the model's own front
+	// face (bbox max z ≈ 0.4986) instead of visibly floating in front of
+	// it — reported alongside the glow being sized too big (see
+	// addVehicleLights()'s jeepLensSizeFactor).
+	headlightLens: [ 0.122, 0.218, 0.495 ],
 	taillight: [ 0.164, 0.210, -0.485 ],
 	// No dedicated reverse-light graphic to sample (same as the truck) —
 	// keeps the truck's own ratio to taillight (×0.628 / ×0.7497 / ×1.0074).
@@ -2530,6 +2534,20 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	// makes the headlight bump itself look lit (bright white with a soft
 	// glow) when toggled on, since the shared body material can't be
 	// selectively recolored without touching the model file.
+	// vehicle-jeep needs an unusually large wrapper scale (1.75, vs the
+	// truck/Camaro's 0.5) to reach the same in-game footprint from its own
+	// much smaller raw model — like Flag.js's pole/cloth, these core/halo
+	// radii below are fixed absolute sizes calibrated at that ~0.5
+	// reference scale, so riding along with the jeep's own bigger wrapper
+	// scale made the glow noticeably bigger than the real headlight bump
+	// it's supposed to sit on (reported: "shrink it, and pull it back so
+	// it hugs the body's own headlight"). Baked into the geometry radius
+	// here rather than group.scale, since toggleHeadlights() below already
+	// overwrites group.scale for the high-beam pulse (1 / 1.3) — scaling
+	// the group here would just get stomped by that. Every other vehicle
+	// is untouched.
+	const jeepLensSizeFactor = ( vehicleModel.userData && vehicleModel.userData.vehicleKey === 'vehicle-jeep' ) ? 0.5 / VEHICLE_SCALE_OVERRIDES[ 'vehicle-jeep' ] : 1;
+
 	const headlightLenses = [];
 	for ( const side of [ -1, 1 ] ) {
 
@@ -2540,13 +2558,13 @@ function addVehicleLights( vehicle, realHazards = false ) {
 		group.visible = false;
 
 		const core = new THREE.Mesh(
-			new THREE.CircleGeometry( 0.075, 16 ),
+			new THREE.CircleGeometry( 0.075 * jeepLensSizeFactor, 16 ),
 			new THREE.MeshBasicMaterial( { color: 0xffffff, toneMapped: false } )
 		);
 		group.add( core );
 
 		const halo = new THREE.Mesh(
-			new THREE.CircleGeometry( 0.16, 24 ),
+			new THREE.CircleGeometry( 0.16 * jeepLensSizeFactor, 24 ),
 			new THREE.MeshBasicMaterial( {
 				map: createGlowTexture( '255, 242, 204' ), color: 0xfff2cc,
 				transparent: true, toneMapped: false, depthWrite: false,
