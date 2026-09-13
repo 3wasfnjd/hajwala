@@ -3612,6 +3612,49 @@ function applyComicStyle( root ) {
 
 }
 
+// A full-screen posterize pass, layered on top of the per-object toon
+// shading + outline above, so the final frame matches the reference
+// poster's look: everything remapped by brightness alone into 3-4 flat
+// bands (near-black shapes/shadows, one dominant saturated red-orange,
+// a pale warm highlight, a thin sliver of pure white for hot specular
+// points) instead of each object's own hue. Deliberately collapses paint-
+// color differences between vehicles — that's the reference image's actual
+// look, not a bug — and only ever runs inside كوميك mode.
+const COMIC_DUOTONE_SHADER = {
+	uniforms: {
+		tDiffuse: { value: null },
+		colorDark: { value: new THREE.Color( 0x1a1210 ) },
+		colorMid: { value: new THREE.Color( 0xe14a2c ) },
+		colorLight: { value: new THREE.Color( 0xf7c2ae ) },
+		colorHighlight: { value: new THREE.Color( 0xffffff ) },
+	},
+	vertexShader: `
+		varying vec2 vUv;
+		void main() {
+			vUv = uv;
+			gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+		}
+	`,
+	fragmentShader: `
+		uniform sampler2D tDiffuse;
+		uniform vec3 colorDark;
+		uniform vec3 colorMid;
+		uniform vec3 colorLight;
+		uniform vec3 colorHighlight;
+		varying vec2 vUv;
+		void main() {
+			vec4 texel = texture2D( tDiffuse, vUv );
+			float lum = dot( texel.rgb, vec3( 0.299, 0.587, 0.114 ) );
+			vec3 outColor;
+			if ( lum < 0.22 ) outColor = colorDark;
+			else if ( lum < 0.75 ) outColor = colorMid;
+			else if ( lum < 0.94 ) outColor = colorLight;
+			else outColor = colorHighlight;
+			gl_FragColor = vec4( outColor, texel.a );
+		}
+	`,
+};
+
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
 function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage, comicStyle } ) {
@@ -3952,27 +3995,46 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	}
 
 	// كوميك mode: swap the whole scene's materials for the toon look right
-	// now (everything track/vehicle/AI-related is already built above), and
-	// load OutlineEffect lazily. It's a dynamic import — rather than a
-	// static one at the top of the file — specifically so that if this one
-	// addon ever fails to resolve, only كوميك mode degrades (toon shading
-	// without outlines); WEB and AR never depend on it and can't be taken
-	// down by it.
+	// now (everything track/vehicle/AI-related is already built above), then
+	// load OutlineEffect and ShaderPass (for the reference-image duotone
+	// pass below) lazily. Dynamic imports — rather than static ones at the
+	// top of the file — specifically so that if either addon ever fails to
+	// resolve, only كوميك mode degrades; WEB and AR never depend on them
+	// and can't be taken down by it.
 	let outlineEffect = null;
 	if ( comicStyle ) {
 
 		applyComicStyle( scene );
-		import( 'three/addons/effects/OutlineEffect.js' )
-			.then( ( { OutlineEffect } ) => {
+
+		// Matches the reference image's pale pink sky rather than either
+		// branch's own daylight-gray or free-roam night-arena background —
+		// the duotone pass below buckets by brightness alone, so the sky
+		// needs to actually sit in the light band to read as that pale
+		// pink instead of getting lumped in with everything else.
+		scene.background = new THREE.Color( 0xf7c2ae );
+		scene.fog.color.set( 0xf7c2ae );
+
+		Promise.all( [
+			import( 'three/addons/effects/OutlineEffect.js' ),
+			import( 'three/addons/postprocessing/ShaderPass.js' ),
+		] )
+			.then( ( [ { OutlineEffect }, { ShaderPass } ] ) => {
 
 				outlineEffect = new OutlineEffect( renderer, {
 					defaultThickness: 0.012, defaultColor: [ 0, 0, 0 ], defaultAlpha: 1, defaultKeepAlive: true,
 				} );
 
+				// Layered after bloom, on top of the existing global effects
+				// chain — matches the reference image's flattened, few-tone
+				// poster look as a final pass over everything toon-shaded/
+				// outlined above.
+				const duotonePass = new ShaderPass( COMIC_DUOTONE_SHADER );
+				renderer.setEffects( [ bloomPass, duotonePass ] );
+
 			} )
 			.catch( ( e ) => {
 
-				console.warn( '[main] كوميك mode: outline effect failed to load, continuing without outlines:', e );
+				console.warn( '[main] كوميك mode: outline/duotone post-processing failed to load, continuing with toon shading only:', e );
 
 			} );
 
