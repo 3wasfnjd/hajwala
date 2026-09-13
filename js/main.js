@@ -41,120 +41,36 @@ document.body.appendChild( renderer.domElement );
 const scene = new THREE.Scene();
 scene.background = new THREE.Color( 0xadb2ba );
 
-// Background music — the game's own default track. Plays quietly on a
+// Background music — the game's own default track, UNLESS the player
+// picked their own audio file from their device via the menu's music icon
+// (customMusicUrl, an object: URL — see the icon's wiring in
+// createModeMenu()), in which case that plays instead. Plays quietly on a
 // loop from the moment the person picks a mode, for the whole session, in
-// every mode (NORMAL, AR track, AR arena) — UNLESS the player set an
-// external music link (YouTube/SoundCloud, via the menu's music icon —
-// see MUSIC_LINK_STORAGE_KEY/parseMusicLink below), in which case that
-// plays instead via a hidden iframe.
-const bgMusic = new Audio( 'audio/music.mp3' );
+// every mode (NORMAL, AR track, AR arena).
+//
+// An earlier version of this let the player paste a YouTube/SoundCloud
+// link, embedded in a hidden iframe — dropped per feedback that it
+// "didn't work" (most likely: plenty of videos disallow embedding, or
+// browsers blocking the iframe's autoplay-with-sound outright, neither of
+// which is reliably fixable from here). A locally picked file plays
+// through this exact same <audio> element the default track already
+// uses, so it has none of those failure modes and reuses the mute toggle
+// for free.
+const DEFAULT_MUSIC_SRC = 'audio/music.mp3';
+const bgMusic = new Audio( DEFAULT_MUSIC_SRC );
 bgMusic.loop = true;
 bgMusic.volume = 0.35;
 
-const MUSIC_LINK_STORAGE_KEY = 'hwMusicLink';
-
-// Recognizes a YouTube or SoundCloud URL and turns it into an embeddable
-// player src. Returns null for anything else (empty field, unsupported
-// site, malformed URL) — callers fall back to the local bgMusic track.
-function parseMusicLink( rawUrl ) {
-
-	if ( ! rawUrl ) return null;
-
-	let url;
-	try {
-
-		url = new URL( rawUrl.trim() );
-
-	} catch ( e ) {
-
-		return null;
-
-	}
-
-	const host = url.hostname.replace( /^www\./, '' );
-
-	if ( host === 'youtube.com' || host === 'm.youtube.com' || host === 'music.youtube.com' || host === 'youtu.be' ) {
-
-		let id = null;
-		if ( host === 'youtu.be' ) id = url.pathname.slice( 1 );
-		else if ( url.pathname === '/watch' ) id = url.searchParams.get( 'v' );
-		else if ( url.pathname.startsWith( '/embed/' ) ) id = url.pathname.split( '/' )[ 2 ];
-		else if ( url.pathname.startsWith( '/shorts/' ) ) id = url.pathname.split( '/' )[ 2 ];
-
-		if ( ! id ) return null;
-
-		// loop=1 needs its own video id repeated as a single-item playlist —
-		// otherwise a "loop" single video just stops at the end.
-		return {
-			type: 'youtube',
-			embedSrc: `https://www.youtube.com/embed/${ id }?autoplay=1&enablejsapi=1&loop=1&playlist=${ id }&controls=0`,
-		};
-
-	}
-
-	if ( host === 'soundcloud.com' ) {
-
-		return {
-			type: 'soundcloud',
-			embedSrc: `https://w.soundcloud.com/player/?url=${ encodeURIComponent( url.href ) }&auto_play=true&hide_related=true&show_comments=false&show_user=false&show_reposts=false&visual=false`,
-		};
-
-	}
-
-	return null;
-
-}
-
-// Hidden 1x1 iframe carrying whichever external track is currently
-// playing — created once per page session, right alongside bgMusic's own
-// gesture-gated start below, and left running until the page reloads.
-let externalMusicIframe = null;
-let externalMusicKind = null;
-
-function setExternalMusicMuted( muted ) {
-
-	if ( ! externalMusicIframe || ! externalMusicIframe.contentWindow ) return;
-
-	// Each platform's own postMessage protocol — no SDK script needed for
-	// either, both accept these directly once the embedded player has
-	// loaded (see the iframe's own 'load' listener below for the initial
-	// state, before which a toggle here would arrive too early to do
-	// anything).
-	if ( externalMusicKind === 'youtube' ) {
-
-		externalMusicIframe.contentWindow.postMessage(
-			JSON.stringify( { event: 'command', func: muted ? 'mute' : 'unMute', args: [] } ), '*'
-		);
-
-	} else if ( externalMusicKind === 'soundcloud' ) {
-
-		externalMusicIframe.contentWindow.postMessage(
-			JSON.stringify( { method: muted ? 'pause' : 'play' } ), '*'
-		);
-
-	}
-
-}
+let customMusicUrl = null; // set by the menu's music icon; null = use the default track
+let bgMusicSrcApplied = DEFAULT_MUSIC_SRC; // avoids restarting playback from 0 on repeat startBgMusic() calls with the same source
 
 function startBgMusic() {
 
-	const parsed = parseMusicLink( localStorage.getItem( MUSIC_LINK_STORAGE_KEY ) );
+	const desiredSrc = customMusicUrl || DEFAULT_MUSIC_SRC;
+	if ( bgMusicSrcApplied !== desiredSrc ) {
 
-	if ( parsed ) {
-
-		if ( ! externalMusicIframe ) {
-
-			externalMusicKind = parsed.type;
-			externalMusicIframe = document.createElement( 'iframe' );
-			externalMusicIframe.allow = 'autoplay';
-			externalMusicIframe.style.cssText = 'position:fixed; width:1px; height:1px; opacity:0; pointer-events:none; border:0;';
-			externalMusicIframe.addEventListener( 'load', () => setExternalMusicMuted( bgMusic.muted ) );
-			externalMusicIframe.src = parsed.embedSrc;
-			document.body.appendChild( externalMusicIframe );
-
-		}
-
-		return; // external track takes over — local bgMusic stays silent
+		bgMusic.src = desiredSrc;
+		bgMusicSrcApplied = desiredSrc;
 
 	}
 
@@ -670,17 +586,17 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-icon-slot .hw-mode-card img,
 			#hajwalah-menu .hw-icon-slot .hw-mode-card svg { margin-bottom: 0; }
-			#hajwalah-menu .hw-flag-clear-badge {
+			#hajwalah-menu .hw-flag-clear-badge, #hajwalah-menu .hw-music-clear-badge {
 				position: absolute; top: -6px; left: -6px; width: 18px; height: 18px; border-radius: 50%;
 				background: #ff5a5a; color: #fff; font-size: 12px; line-height: 17px; text-align: center;
 				border: 1px solid rgba(255,255,255,0.5); padding: 0; cursor: pointer; display: block;
 			}
-			#hajwalah-menu .hw-flag-clear-badge.hidden { display: none; }
-			#hajwalah-menu .hw-name-badge, #hajwalah-menu .hw-music-badge {
+			#hajwalah-menu .hw-flag-clear-badge.hidden, #hajwalah-menu .hw-music-clear-badge.hidden { display: none; }
+			#hajwalah-menu .hw-name-badge {
 				position: absolute; top: -4px; left: -4px; width: 12px; height: 12px; border-radius: 50%;
 				background: #5B8CFF; border: 1px solid rgba(255,255,255,0.6); display: none; pointer-events: none;
 			}
-			#hajwalah-menu .hw-name-badge.shown, #hajwalah-menu .hw-music-badge.shown { display: block; }
+			#hajwalah-menu .hw-name-badge.shown { display: block; }
 			#hajwalah-menu .hw-bottom-panel {
 				margin-top: auto; width: 100%; border-radius: 20px; overflow: hidden;
 				background: rgba(14,11,24,0.6); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px);
@@ -804,17 +720,18 @@ function createModeMenu( { arAvailable } ) {
 						<span class="hw-name-badge"></span>
 					</div>
 					<div class="hw-icon-slot">
-						<button type="button" class="hw-mode-card hw-music-icon-btn" title="رابط أغنية (يوتيوب أو ساوندكلاود)">
+						<button type="button" class="hw-mode-card hw-music-icon-btn" title="ملف موسيقى من الجهاز">
 							<svg viewBox="0 0 24 24" fill="#5B8CFF" stroke="none">
 								<path d="M9 18V5l12-2v13" stroke="#5B8CFF" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 								<circle cx="6" cy="18" r="3"/>
 								<circle cx="18" cy="16" r="3"/>
 							</svg>
 						</button>
-						<span class="hw-music-badge"></span>
+						<button type="button" class="hw-music-clear-badge hidden" title="إزالة الملف">×</button>
 					</div>
 				</div>
 				<input type="file" accept="image/*" class="hw-flag-input" hidden />
+				<input type="file" accept="audio/*" class="hw-music-input" hidden />
 
 				<div class="hw-bottom-panel">
 					<div class="hw-step hw-step-top">
@@ -1001,73 +918,45 @@ function createModeMenu( { arAvailable } ) {
 
 		nameIconBtn.addEventListener( 'click', openNamePopup );
 
-		// ─── Music icon (opens a popup to paste a YouTube/SoundCloud link) ───
-		// Stored in localStorage (not the in-memory customTextValue/
-		// flagImageDataUrl pattern above) since startBgMusic() — called from
-		// several places, including after a page reload for "إعادة السباق"/
-		// AR-return — has no access to this menu's own closure. parseMusicLink()
-		// there reads the same key, so saving it here is the only wiring
-		// needed; an unset/invalid link just falls back to the normal local
-		// background track, same as before this feature existed.
+		// ─── Music icon (pick an audio file from the device) ───
+		// Same file-picker pattern as the flag icon above, an object: URL
+		// instead of a data: URL since audio files run much bigger than a
+		// flag image and a data: URL would mean holding the whole thing
+		// base64-encoded in memory for no benefit — createMusicUrl feeds
+		// straight into bgMusic's own <audio> element (see
+		// customMusicUrl/startBgMusic() near the top of this file), so it
+		// reuses the exact same playback/mute-toggle path the default track
+		// already uses. Kept in a plain module-scope variable, not
+		// localStorage — an object: URL doesn't survive a reload anyway, so
+		// there's nothing to gain persisting it (restart race/AR-return
+		// just fall back to the default track, same as picking nothing).
 		const musicIconBtn = menu.querySelector( '.hw-music-icon-btn' );
-		const musicBadge = menu.querySelector( '.hw-music-badge' );
-		musicBadge.classList.toggle( 'shown', !! parseMusicLink( localStorage.getItem( MUSIC_LINK_STORAGE_KEY ) ) );
+		const musicInput = menu.querySelector( '.hw-music-input' );
+		const musicClearBadge = menu.querySelector( '.hw-music-clear-badge' );
+		musicClearBadge.classList.toggle( 'hidden', ! customMusicUrl );
 
-		function openMusicPopup() {
+		musicIconBtn.addEventListener( 'click', () => musicInput.click() );
 
-			const overlay = document.createElement( 'div' );
-			overlay.id = 'hw-name-popup-overlay';
-			overlay.dir = 'rtl';
-			overlay.innerHTML = `
-				<div class="hwn-card">
-					<div class="hwn-label">رابط أغنية من يوتيوب أو ساوندكلاود (تشغيل خلفي بدل موسيقى اللعبة) — اختياري</div>
-					<input type="text" style="direction:ltr; text-align:left;" placeholder="https://youtube.com/watch?v=... أو رابط ساوندكلاود" />
-					<div class="hwn-error hidden">الرابط لازم يكون من يوتيوب أو ساوندكلاود</div>
-					<button type="button" class="hwn-save">تم</button>
-				</div>
-			`;
+		musicInput.addEventListener( 'change', () => {
 
-			const input = overlay.querySelector( 'input' );
-			const errorEl = overlay.querySelector( '.hwn-error' );
-			input.value = localStorage.getItem( MUSIC_LINK_STORAGE_KEY ) || '';
+			const file = musicInput.files && musicInput.files[ 0 ];
+			if ( ! file ) return;
 
-			function save() {
+			if ( customMusicUrl ) URL.revokeObjectURL( customMusicUrl );
+			customMusicUrl = URL.createObjectURL( file );
+			musicClearBadge.classList.remove( 'hidden' );
 
-				const value = input.value.trim();
+		} );
 
-				if ( ! value ) {
+		musicClearBadge.addEventListener( 'click', ( e ) => {
 
-					localStorage.removeItem( MUSIC_LINK_STORAGE_KEY );
-					musicBadge.classList.remove( 'shown' );
-					return true;
+			e.stopPropagation();
+			if ( customMusicUrl ) URL.revokeObjectURL( customMusicUrl );
+			customMusicUrl = null;
+			musicInput.value = '';
+			musicClearBadge.classList.add( 'hidden' );
 
-				}
-
-				if ( ! parseMusicLink( value ) ) {
-
-					errorEl.classList.remove( 'hidden' );
-					return false;
-
-				}
-
-				localStorage.setItem( MUSIC_LINK_STORAGE_KEY, value );
-				musicBadge.classList.add( 'shown' );
-				return true;
-
-			}
-
-			input.addEventListener( 'input', () => errorEl.classList.add( 'hidden' ) );
-			input.addEventListener( 'keydown', ( e ) => { if ( e.key === 'Enter' && save() ) overlay.remove(); } );
-
-			overlay.querySelector( '.hwn-save' ).addEventListener( 'click', () => { if ( save() ) overlay.remove(); } );
-			overlay.addEventListener( 'click', ( e ) => { if ( e.target === overlay ) overlay.remove(); } );
-
-			document.body.appendChild( overlay );
-			input.focus();
-
-		}
-
-		musicIconBtn.addEventListener( 'click', openMusicPopup );
+		} );
 
 		// ─── Mode navigation (WEB and كوميك both reveal the same track/
 		// free-roam choice; VR enters the AR session directly) — same
@@ -3335,7 +3224,6 @@ function setupMusicToggle() {
 
 		e.stopPropagation();
 		bgMusic.muted = ! bgMusic.muted;
-		setExternalMusicMuted( bgMusic.muted ); // no-op if no external track is playing
 		sync();
 
 	} );
