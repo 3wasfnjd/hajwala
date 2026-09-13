@@ -19,6 +19,47 @@ const _blPos = new THREE.Vector3();
 const _brPos = new THREE.Vector3();
 const _containerWorldPos = new THREE.Vector3();
 
+// كوميك mode only: a flat, black-outlined puff instead of the soft
+// photographic sprites/smoke.png sprite — the soft gradient sprite reads
+// as realistic smoke no matter what shades the surrounding scene, so
+// comic mode needs its own graphic replacement rather than a material
+// tweak on the same texture.
+function createComicSmokeTexture() {
+
+	const size = 128;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+	const c = size / 2;
+
+	ctx.fillStyle = '#e8e8ec';
+	ctx.strokeStyle = '#0a0a0c';
+	ctx.lineWidth = size * 0.07;
+
+	// A cluster of overlapping circles reads as a "cloud" silhouette
+	// rather than a single plain dot, stroked so it keeps the ink-outline
+	// look every other كوميك surface gets.
+	const lobes = [
+		[ 0, 0, 0.42 ],
+		[ -0.3, 0.12, 0.3 ],
+		[ 0.32, 0.1, 0.32 ],
+		[ 0, -0.28, 0.3 ],
+	];
+	ctx.beginPath();
+	for ( const [ lx, ly, lr ] of lobes ) {
+
+		ctx.moveTo( c + ( lx + lr ) * size, c + ly * size );
+		ctx.arc( c + lx * size, c + ly * size, lr * size, 0, Math.PI * 2 );
+
+	}
+	ctx.fill();
+	ctx.stroke();
+
+	const texture = new THREE.CanvasTexture( canvas );
+	return texture;
+
+}
+
 export class SmokeTrails {
 
 	// emitMultiplier scales how many particles spawn per emission burst,
@@ -26,8 +67,10 @@ export class SmokeTrails {
 	// emission RATE (the actual CPU/GPU cost driver: more live particles
 	// = more per-frame buffer writes + draw cost) without changing how
 	// tiny each individual puff renders. Defaults to 1 (no change) for
-	// every existing caller, including NORMAL/web mode.
-	constructor( scene, scale = 1, emitMultiplier = 1 ) {
+	// every existing caller, including NORMAL/web mode. comicStyle swaps
+	// the sprite texture/tint for the flat outlined puff above; every
+	// other caller leaves it false and keeps the original soft smoke.
+	constructor( scene, scale = 1, emitMultiplier = 1, comicStyle = false ) {
 
 		this.scale = scale;
 		this.emitMultiplier = emitMultiplier;
@@ -50,11 +93,11 @@ export class SmokeTrails {
 		sizeAttr.setUsage( THREE.DynamicDrawUsage );
 		geometry.setAttribute( 'aSize', sizeAttr );
 
-		const map = new THREE.TextureLoader().load( 'sprites/smoke.png' );
+		const map = comicStyle ? createComicSmokeTexture() : new THREE.TextureLoader().load( 'sprites/smoke.png' );
 
 		const material = new THREE.PointsMaterial( {
 			map,
-			color: 0x5E5F6B,
+			color: comicStyle ? 0xffffff : 0x5E5F6B,
 			size: 1,
 			sizeAttenuation: true,
 			transparent: true,

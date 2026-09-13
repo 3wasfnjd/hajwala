@@ -1210,7 +1210,10 @@ function createGlowTexture( color ) {
 
 // ─── Free-roam circuit environment (asphalt + grandstands) ──
 
-function createAsphaltTexture() {
+// comicStyle skips the speckle grain below entirely — a flat poster-style
+// fill instead of a busy photographic-looking surface, matching كوميك
+// mode's toon-shaded models instead of clashing with them.
+function createAsphaltTexture( comicStyle = false ) {
 
 	const size = 256;
 	const canvas = document.createElement( 'canvas' );
@@ -1224,12 +1227,16 @@ function createAsphaltTexture() {
 	ctx.fillStyle = '#3a3a40';
 	ctx.fillRect( 0, 0, size, size );
 
-	for ( let i = 0; i < 1400; i ++ ) {
+	if ( ! comicStyle ) {
 
-		const x = Math.random() * size, y = Math.random() * size;
-		const v = 20 + Math.random() * 30;
-		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.25 + Math.random() * 0.3 })`;
-		ctx.fillRect( x, y, 1.4, 1.4 );
+		for ( let i = 0; i < 1400; i ++ ) {
+
+			const x = Math.random() * size, y = Math.random() * size;
+			const v = 20 + Math.random() * 30;
+			ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.25 + Math.random() * 0.3 })`;
+			ctx.fillRect( x, y, 1.4, 1.4 );
+
+		}
 
 	}
 
@@ -1244,7 +1251,9 @@ function createAsphaltTexture() {
 // lane markings (useful even with the barrier/stand dressing, since the
 // middle of a large arena can still feel empty without them).
 
-function createSandTexture() {
+// comicStyle: see createAsphaltTexture above — same reasoning, flat fill
+// with no grain/streaks instead of the realistic sand look.
+function createSandTexture( comicStyle = false ) {
 
 	const size = 256;
 	const canvas = document.createElement( 'canvas' );
@@ -1253,26 +1262,30 @@ function createSandTexture() {
 	ctx.fillStyle = '#c9a877';
 	ctx.fillRect( 0, 0, size, size );
 
-	for ( let i = 0; i < 2200; i ++ ) {
+	if ( ! comicStyle ) {
 
-		const x = Math.random() * size, y = Math.random() * size;
-		const v = Math.random();
-		const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
-		ctx.fillStyle = shade;
-		ctx.fillRect( x, y, 1.6, 1.6 );
+		for ( let i = 0; i < 2200; i ++ ) {
 
-	}
+			const x = Math.random() * size, y = Math.random() * size;
+			const v = Math.random();
+			const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
+			ctx.fillStyle = shade;
+			ctx.fillRect( x, y, 1.6, 1.6 );
 
-	// Faint wind-ripple streaks
-	ctx.strokeStyle = 'rgba(120,95,60,0.08)';
-	ctx.lineWidth = 2;
-	for ( let i = 0; i < 18; i ++ ) {
+		}
 
-		const y = Math.random() * size;
-		ctx.beginPath();
-		ctx.moveTo( 0, y );
-		ctx.bezierCurveTo( size * 0.3, y + ( Math.random() - 0.5 ) * 20, size * 0.7, y + ( Math.random() - 0.5 ) * 20, size, y );
-		ctx.stroke();
+		// Faint wind-ripple streaks
+		ctx.strokeStyle = 'rgba(120,95,60,0.08)';
+		ctx.lineWidth = 2;
+		for ( let i = 0; i < 18; i ++ ) {
+
+			const y = Math.random() * size;
+			ctx.beginPath();
+			ctx.moveTo( 0, y );
+			ctx.bezierCurveTo( size * 0.3, y + ( Math.random() - 0.5 ) * 20, size * 0.7, y + ( Math.random() - 0.5 ) * 20, size, y );
+			ctx.stroke();
+
+		}
 
 	}
 
@@ -3649,7 +3662,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		} );
 
 		// Visible asphalt ground, matching the invisible physics floor.
-		const asphaltTexture = createAsphaltTexture();
+		const asphaltTexture = createAsphaltTexture( comicStyle );
 		asphaltTexture.repeat.set( groundSize / 8, groundSize / 8 );
 		const groundMesh = new THREE.Mesh(
 			new THREE.PlaneGeometry( groundSize, groundSize ),
@@ -3709,7 +3722,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 		// Dry desert surround, peeking out beyond the paved arena's edge —
 		// sits just below the asphalt so it only shows past its footprint.
-		const sandTexture = createSandTexture();
+		const sandTexture = createSandTexture( comicStyle );
 		const sandSize = groundSize * 2;
 		sandTexture.repeat.set( sandSize / 10, sandSize / 10 );
 		const sandMesh = new THREE.Mesh(
@@ -3883,13 +3896,13 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const controls = new Controls();
 
-	const particles = new SmokeTrails( scene );
+	const particles = new SmokeTrails( scene, 1, 1, comicStyle );
 	// AI cars share ONE dedicated, deliberately light smoke emitter — same
 	// idea as the AR floating-track/arena fix that stopped the smoke
 	// freeze (real-world scale here, so scale stays 1, only emitMultiplier
 	// is cut) — separate from the player's own full-strength `particles`
 	// so AI stays a light background effect rather than competing with it.
-	const aiParticles = new SmokeTrails( scene, 1, 0.15 );
+	const aiParticles = new SmokeTrails( scene, 1, 0.15, comicStyle );
 	const driftMarks = new DriftMarks( scene, mapParam );
 
 	const audio = new GameAudio();
