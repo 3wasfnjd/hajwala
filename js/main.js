@@ -409,6 +409,21 @@ async function loadModels() {
 				// for whichever vehicle it's actually decorating.
 				if ( name.startsWith( 'vehicle-' ) ) models[ name ].userData.vehicleKey = name;
 
+				// vehicle-jeep.glb's "body" is one merged mesh with the tires
+				// already baked in (no separate body-above-wheels geometry to
+				// measure a clearance from — see Vehicle.js's own comment on
+				// this), so its clearance heuristic saw a negative value and
+				// fell back to the flat BODY_SUSPENSION_SINK — calibrated
+				// against the truck's much taller body and, relative to this
+				// model's compact height, sank the whole body (tires
+				// included, being the same mesh) down far enough to visibly
+				// bury the tires up into the fenders. Overriding it to 0 here
+				// (read by Vehicle.js's init() when present) disables the
+				// settle animation for this one vehicle only — every other
+				// vehicle's userData is untouched and keeps computing its own
+				// sink exactly as before.
+				if ( name === 'vehicle-jeep' ) models[ name ].userData.suspensionSink = 0;
+
 				resolve();
 
 			}, undefined, reject );
@@ -651,7 +666,7 @@ function createModeMenu( { arAvailable } ) {
 			{ key: 'vehicle-truck-red', label: 'أحمر', thumb: 'images/menu/thumb-red.png' },
 			{ key: 'vehicle-truck-yellow', label: 'أصفر', thumb: 'images/menu/thumb-yellow.png' },
 			{ key: 'vehicle-truck-green', label: 'أخضر', thumb: 'images/menu/thumb-green.png' },
-			{ key: 'vehicle-jeep', label: 'جيب', thumb: 'images/menu/thumb-jeep.png' },
+			{ key: 'vehicle-jeep', label: 'شاص', thumb: 'images/menu/thumb-jeep.png' },
 		];
 		let selectedVehicleIndex = 0; // black ("اف جي") is the default car — back at index 0 after the reorder
 		let customTextValue = '';

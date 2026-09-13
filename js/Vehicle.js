@@ -202,9 +202,19 @@ export class Vehicle {
 			}
 
 			const SINK_TO_CLEARANCE_RATIO = 0.25; // = BODY_SUSPENSION_SINK / the truck's own 0.4 clearance
-			const targetSink = ( clearance !== null && clearance > 0 )
-				? SINK_TO_CLEARANCE_RATIO * clearance
-				: BODY_SUSPENSION_SINK; // no wheels found to measure against — fall back to the flat original
+			// Per-model escape hatch (set via userData.suspensionSink, carried
+			// through .clone()) for a "body" whose own bounding box can't
+			// give a meaningful clearance reading at all — e.g. a single
+			// merged mesh with the tires already baked into the same body
+			// geometry, where bodyBox.min.y IS the tire's own ground contact
+			// point rather than some separate underbody sitting above the
+			// wheels. Absent for every model that doesn't set it, so this is
+			// a no-op everywhere else.
+			const sinkOverride = vehicleModel.userData && vehicleModel.userData.suspensionSink;
+			const targetSink = ( sinkOverride !== undefined ) ? sinkOverride
+				: ( clearance !== null && clearance > 0 )
+					? SINK_TO_CLEARANCE_RATIO * clearance
+					: BODY_SUSPENSION_SINK; // no wheels found to measure against — fall back to the flat original
 			this._bodySuspensionSinkLocal = targetSink / Math.max( extraLocalScale, 0.0001 );
 
 		}
