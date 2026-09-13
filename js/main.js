@@ -3923,10 +3923,20 @@ function buildComicRoadWorld( scene, models, world ) {
 	const groundHalfZ = rows * COMIC_ROAD_CELL * 1.4;
 	const sandTexture = createSandTexture( true );
 	sandTexture.repeat.set( groundHalfX / 5, groundHalfZ / 5 );
-	const groundMesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( groundHalfX * 2, groundHalfZ * 2 ),
-		new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1, metalness: 0 } )
-	);
+	// polygonOffset pushes this plane's rasterized depth slightly further
+	// from the camera than its literal position implies — needed because
+	// it sits only 0.02-0.05 units below the tiles' own sand/asphalt
+	// quads (see comment above), a gap thin enough that ordinary
+	// depth-buffer precision loss at range/grazing angles can flip which
+	// surface wins on some GPUs even though it never does on others,
+	// intermittently hiding the tiles under this "filler" ground instead
+	// of it staying safely behind them. This bias is a standard, position-
+	// independent fix for exactly that class of near-coplanar z-fighting.
+	const groundMaterial = new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1, metalness: 0 } );
+	groundMaterial.polygonOffset = true;
+	groundMaterial.polygonOffsetFactor = 4;
+	groundMaterial.polygonOffsetUnits = 4;
+	const groundMesh = new THREE.Mesh( new THREE.PlaneGeometry( groundHalfX * 2, groundHalfZ * 2 ), groundMaterial );
 	groundMesh.rotation.x = - Math.PI / 2;
 	groundMesh.position.set( 0, - 0.02, 0 );
 	scene.add( groundMesh );
