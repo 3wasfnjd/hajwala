@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const _desired = new THREE.Vector3();
 const _delta = new THREE.Vector3();
 const _lookPoint = new THREE.Vector3();
+const _forward = new THREE.Vector3();
 
 export class Camera {
 
@@ -22,9 +23,23 @@ export class Camera {
 	// Y offsets from it are only ~0.001 apart). Every mode using the tight
 	// default distance is unaffected either way (far=60/near=0.1 was already
 	// a comfortable ratio for that range).
-	constructor( { distanceScale = 1, far = 60, near = 0.1 } = {} ) {
+	// chaseHeading: opts into a classic close third-person chase cam that
+	// stays directly behind the car's own heading (rotates with it as it
+	// turns) instead of the fixed-world-angle isometric offset below —
+	// currently only used by كوميك mode. chaseDistance/chaseHeight/
+	// chaseLookAhead tune how close and how "behind" it sits. Every other
+	// mode never sets this, so its own update() branch is untouched.
+	constructor( {
+		distanceScale = 1, far = 60, near = 0.1,
+		chaseHeading = false, chaseDistance = 6, chaseHeight = 2.6, chaseLookAhead = 4,
+	} = {} ) {
 
 		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, near, far );
+
+		this.chaseHeading = chaseHeading;
+		this.chaseDistance = chaseDistance;
+		this.chaseHeight = chaseHeight;
+		this.chaseLookAhead = chaseLookAhead;
 
 		// Matches Godot View: 45° azimuth, 35° elevation, distance 16 (×distanceScale)
 		this.offset = new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );
@@ -71,7 +86,34 @@ export class Camera {
 
 	}
 
-	update( dt, target, velocity ) {
+	update( dt, target, velocity, heading ) {
+
+		if ( this.chaseHeading && heading ) {
+
+			_forward.set( 0, 0, 1 ).applyQuaternion( heading );
+			_forward.y = 0;
+			if ( _forward.lengthSq() > 1e-6 ) _forward.normalize(); else _forward.set( 0, 0, 1 );
+
+			_desired.copy( target ).addScaledVector( _forward, - this.chaseDistance );
+			_desired.y = target.y + this.chaseHeight;
+
+			const chaseAlpha = this.initialized ? 1 - Math.exp( - dt * this.cameraSmoothing ) : 1;
+			this.smoothedDesired.lerp( _desired, chaseAlpha );
+			this.initialized = true;
+
+			this.camera.position.copy( this.smoothedDesired );
+
+			_lookPoint.copy( target ).addScaledVector( _forward, this.chaseLookAhead );
+			_lookPoint.y = target.y + this.chaseHeight * 0.4;
+			this.camera.lookAt( _lookPoint );
+
+			this.debug.position.copy( target );
+			this.debug.position.y += 0.05;
+			this.debug.scale.set( this.deadzoneRadius, 1, this.deadzoneRadius );
+
+			return;
+
+		}
 
 		const radius = this.deadzoneRadius;
 		const radiusSq = radius * radius;

@@ -3874,8 +3874,11 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	// Free-roam ("الحلبة") pulls the chase cam back so a much larger part
 	// of the open arena is visible at once, instead of the classic track
-	// mode's tighter, closer-in default view.
-	const cam = freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
+	// mode's tighter, closer-in default view. كوميك mode instead opts into
+	// a close third-person cam that stays right behind the car (see
+	// Camera's chaseHeading) — WEB/AR keep the original isometric offset.
+	const cam = comicStyle ? new Camera( { chaseHeading: true } )
+		: freeRoam ? new Camera( { distanceScale: 3, far: 250, near: 2 } ) : new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
@@ -4083,7 +4086,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead );
+			cam.update( dt, vehicle.spherePos, _camLead, vehicle.container.quaternion );
 
 			if ( outlineEffect ) outlineEffect.render( scene, cam.camera );
 			else renderer.render( scene, cam.camera );
