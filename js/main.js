@@ -218,7 +218,7 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'highway-tree', 'highway-streetlight', 'highway-ground-patch',
+	'highway-tree', 'highway-streetlight', 'highway-ground-patch', 'highway-barrier',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -4008,6 +4008,58 @@ function wrapHighwayGroundPatch( source, targetWidth ) {
 
 }
 
+// Median concrete barrier (user supplied for طرفي الجزيرة — both median
+// edges): a short extruded run of barrier, meant to be tiled continuously
+// down the whole median rather than scattered as individual props like
+// the tree/ground-patch above. Rather than placing many short copies per
+// HW_SEGMENT_LENGTH slot (cheap per instance, but adds up fast — this is
+// already the 4th kind of scattered prop per slot), one instance is
+// scaled up to span the ENTIRE segment length by itself: cross-section
+// (height/width) scaled uniformly to a real-world barrier size first,
+// then just the run axis stretched independently the rest of the way to
+// targetLength. Low-distortion for this specific shape — a barrier is a
+// simple trapezoidal profile extruded lengthwise, so stretching that
+// extrusion axis reads fine at driving speed/distance, unlike a shape
+// with actual per-length detail (a tree, say) would.
+// The model's own long axis (its run direction) could come out along
+// local X or Z depending on how it was authored/exported — detected from
+// its own measured bounding box and rotated onto Z if needed, rather than
+// assumed, so this doesn't silently break if a future replacement model
+// happens to be authored the other way.
+// Returns { group, width, height } — width/height (already scaled) let
+// the caller size a matching physics collider without re-measuring.
+function wrapHighwayBarrier( source, targetHeight, targetLength ) {
+
+	const inst = source.clone( true );
+	const box = new THREE.Box3().setFromObject( inst );
+	const size = new THREE.Vector3();
+	box.getSize( size );
+
+	const wrapper = new THREE.Group();
+	inst.position.set(
+		- ( box.min.x + box.max.x ) / 2,
+		- box.min.y,
+		- ( box.min.z + box.max.z ) / 2
+	);
+	wrapper.add( inst );
+
+	const longAxisIsX = size.x > size.z;
+	if ( longAxisIsX ) wrapper.rotation.y = Math.PI / 2;
+
+	const crossScale = targetHeight / Math.max( size.y, 0.0001 );
+	wrapper.scale.setScalar( crossScale );
+
+	const naturalLength = ( longAxisIsX ? size.x : size.z ) * crossScale;
+	const naturalWidth = ( longAxisIsX ? size.z : size.x ) * crossScale;
+
+	const group = new THREE.Group();
+	group.add( wrapper );
+	group.scale.z = targetLength / Math.max( naturalLength, 0.0001 );
+
+	return { group, width: naturalWidth, height: targetHeight };
+
+}
+
 // Streetlight/tree pole height, shared between the visual wrapHighwayProp
 // scale and the physics collider height below, so a collision box can
 // never end up mismatched from what's actually drawn.
@@ -4038,7 +4090,7 @@ function createHighwaySegmentProps( models, world ) {
 			friction: 0.4,
 			restitution: 0.15,
 		} );
-		bodies.push( { body, localX: x, localZ: z } );
+		bodies.push( { body, localX: x, localY: HW_PROP_HEIGHT / 2, localZ: z } );
 
 	};
 
@@ -4087,6 +4139,36 @@ function createHighwaySegmentProps( models, world ) {
 			group.add( patch );
 
 		}
+
+	}
+
+	// Median concrete barrier, one instance per side stretched to span
+	// this whole segment length (see wrapHighwayBarrier's own comment on
+	// why one stretched instance instead of many tiled copies). Sits on
+	// top of the median strip (top surface at y=0.2 — see the median
+	// BoxGeometry below: position.y=0.1, height 0.2) and gets a matching
+	// KINEMATIC box collider so drifting into the median actually stops
+	// the car instead of ghosting through it.
+	const BARRIER_HEIGHT = 0.9;
+	const MEDIAN_TOP_Y = 0.2;
+	for ( const side of [ -1, 1 ] ) {
+
+		const { group: barrierGroup, width: barrierWidth } = wrapHighwayBarrier(
+			models[ 'highway-barrier' ], BARRIER_HEIGHT, HW_SEGMENT_LENGTH
+		);
+		const x = side * ( HW_MEDIAN_HALF - 0.2 );
+		barrierGroup.position.set( x, MEDIAN_TOP_Y, HW_SEGMENT_LENGTH / 2 );
+		group.add( barrierGroup );
+
+		const body = rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ barrierWidth / 2, BARRIER_HEIGHT / 2, HW_SEGMENT_LENGTH / 2 ] } ),
+			motionType: MotionType.KINEMATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ x, MEDIAN_TOP_Y + BARRIER_HEIGHT / 2, HW_SEGMENT_LENGTH / 2 ],
+			friction: 0.4,
+			restitution: 0.15,
+		} );
+		bodies.push( { body, localX: x, localY: MEDIAN_TOP_Y + BARRIER_HEIGHT / 2, localZ: HW_SEGMENT_LENGTH / 2 } );
 
 	}
 
@@ -4242,7 +4324,7 @@ function repositionHighwaySegmentBodies( world, slot ) {
 	const z = slot.group.position.z;
 	for ( const b of slot.bodies ) {
 
-		rigidBody.setPosition( world, b.body, [ b.localX, HW_PROP_HEIGHT / 2, z + b.localZ ], true );
+		rigidBody.setPosition( world, b.body, [ b.localX, b.localY, z + b.localZ ], true );
 
 	}
 
