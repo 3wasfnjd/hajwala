@@ -4199,10 +4199,22 @@ function createHighwaySegmentProps( models, world ) {
 	// tall relative to the car at the previous 0.9.
 	const gapStart = ( HW_SEGMENT_LENGTH - HW_UTURN_GAP_LENGTH ) / 2;
 	const gapEnd = gapStart + HW_UTURN_GAP_LENGTH;
+	// Real Jersey barrier segments taper toward their own ends rather
+	// than presenting a flat cut face, so their mathematically-correct
+	// bounding box touches the neighboring piece/cap without the actual
+	// tapered concrete surface reaching that far — reported as a visible
+	// gap at the seam. Fixed by overlapping the before/after pieces
+	// (and the end-caps below, at these same effective boundaries)
+	// generously PAST gapStart/gapEnd rather than exactly at them —
+	// invisible on ordinary segments (just extra hidden overlap) and,
+	// on U-turn segments, a negligible ~1m narrower opening.
+	const EDGE_OVERLAP = 0.6;
+	const effGapStart = gapStart + EDGE_OVERLAP;
+	const effGapEnd = gapEnd - EDGE_OVERLAP;
 	const barrierPieces = [
-		{ zStart: 0, zEnd: gapStart, isGapPiece: false },
+		{ zStart: 0, zEnd: effGapStart, isGapPiece: false },
 		{ zStart: gapStart, zEnd: gapEnd, isGapPiece: true },
-		{ zStart: gapEnd, zEnd: HW_SEGMENT_LENGTH, isGapPiece: false },
+		{ zStart: effGapEnd, zEnd: HW_SEGMENT_LENGTH, isGapPiece: false },
 	];
 	for ( const side of [ -1, 1 ] ) {
 
@@ -4250,7 +4262,7 @@ function createHighwaySegmentProps( models, world ) {
 
 		const barrierX = side * ( HW_MEDIAN_HALF - 0.2 );
 		const y = HW_MEDIAN_TOP_Y + HW_BARRIER_HEIGHT / 2;
-		for ( const zEdge of [ gapStart, gapEnd ] ) {
+		for ( const zEdge of [ effGapStart, effGapEnd ] ) {
 
 			const { group: capGroup, width: capWidth } = wrapHighwayBarrier(
 				models[ 'highway-barrier' ], HW_BARRIER_HEIGHT, CAP_LENGTH
