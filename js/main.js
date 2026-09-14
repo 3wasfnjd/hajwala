@@ -3979,6 +3979,13 @@ function createHighwayLaneTexture( mirrored ) {
 	const texture = new THREE.CanvasTexture( canvas );
 	texture.wrapS = THREE.ClampToEdgeWrapping; // fixed lane layout across X — never repeats sideways
 	texture.wrapT = THREE.RepeatWrapping; // tiles endlessly down the road's length
+	// Without this, this canvas defaults to THREE.NoColorSpace (treated
+	// as linear data) while the median's own color map explicitly gets
+	// SRGBColorSpace (see highwayAsphaltColorMap) — same darkened asphalt
+	// photo underneath, but rendered through different gamma handling,
+	// so the two surfaces came out visibly different colors (reported:
+	// "لون الجزيرة أفضل من لون الشارع" — the median's tone looked better).
+	texture.colorSpace = THREE.SRGBColorSpace;
 	return texture;
 
 }
