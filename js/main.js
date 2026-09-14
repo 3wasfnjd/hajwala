@@ -3873,7 +3873,7 @@ const HW_BARRIER_HEIGHT = 0.4; // below the truck's own final body height (0.575
 // needing its own curb-height blend.
 const HW_MEDIAN_TOP_Y = 0.005;
 const HW_UTURN_EVERY = 5; // every Nth segment (by global index) opens a U-turn gap in the median barrier
-const HW_UTURN_GAP_LENGTH = 16; // kept short/modest per feedback ("صغره لا تخليه كبير") — not the whole HW_SEGMENT_LENGTH
+const HW_UTURN_GAP_LENGTH = 25; // widened from an initial 16 per feedback
 
 // Diffuse-only canvas texture for one direction's paved lanes: dashed
 // white dividers between same-direction lanes, a solid white line at
@@ -4102,6 +4102,7 @@ function createHighwaySegmentProps( models, world ) {
 	// regardless of exactly where they'd otherwise sit relative to the
 	// gap itself.
 	const hideOnGap = [];
+	const showOnGap = []; // the inverse of hideOnGap — visible/solid only on U-turn segments; currently the barrier's own straight end-caps
 
 	const addGapPoleCollider = ( visual, x, z, radius ) => {
 
@@ -4221,12 +4222,47 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// No corner-curb dressing at the U-turn opening — tried once (a
-	// rounded concrete corner piece), reported not to look good, removed.
-	// The barrier's own missing middle piece (hideOnGap above) is the
-	// only thing that changes for a U-turn segment.
+	// Straight end-caps closing off the barrier's two cut ends at the
+	// U-turn opening (per feedback, in place of the earlier curved
+	// corner piece that didn't look good) — the same barrier model,
+	// just a short piece rotated 90° so it runs across (local X) instead
+	// of along (local Z) the road, capping the open cross-section rather
+	// than leaving it exposed. Only present on gap segments (showOnGap,
+	// the inverse of hideOnGap above): on every other segment the
+	// barrier already runs straight through with nothing to cap.
+	// Short and only extends inward from the barrier's own line (not
+	// spanning the full median) so it doesn't block the U-turn itself —
+	// just closes the corner where the run barrier stops.
+	const CAP_LENGTH = 1;
+	for ( const side of [ -1, 1 ] ) {
 
-	return { group, bodies, hideOnGap };
+		const barrierX = side * ( HW_MEDIAN_HALF - 0.2 );
+		const y = HW_MEDIAN_TOP_Y + HW_BARRIER_HEIGHT / 2;
+		for ( const zEdge of [ gapStart, gapEnd ] ) {
+
+			const { group: capGroup, width: capWidth } = wrapHighwayBarrier(
+				models[ 'highway-barrier' ], HW_BARRIER_HEIGHT, CAP_LENGTH
+			);
+			capGroup.rotation.y = Math.PI / 2;
+			const capX = barrierX - side * ( CAP_LENGTH / 2 );
+			capGroup.position.set( capX, HW_MEDIAN_TOP_Y, zEdge );
+			group.add( capGroup );
+
+			const body = rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ CAP_LENGTH / 2, HW_BARRIER_HEIGHT / 2, capWidth / 2 ] } ),
+				motionType: MotionType.KINEMATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ capX, y, zEdge ],
+				friction: 0.4,
+				restitution: 0.15,
+			} );
+			showOnGap.push( { visual: capGroup, body, localX: capX, localY: y, localZ: zEdge } );
+
+		}
+
+	}
+
+	return { group, bodies, hideOnGap, showOnGap };
 
 }
 
@@ -4378,10 +4414,10 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const { group, bodies, hideOnGap } = createHighwaySegmentProps( models, world );
+		const { group, bodies, hideOnGap, showOnGap } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		const slot = { group, index, bodies, hideOnGap };
+		const slot = { group, index, bodies, hideOnGap, showOnGap };
 		repositionHighwaySegmentBodies( world, slot );
 		updateHighwayGapState( world, slot );
 		segments.push( slot );
@@ -4418,6 +4454,9 @@ function repositionHighwaySegmentBodies( world, slot ) {
 // dropped far below the world (cheaper/simpler than a real enable/
 // disable — crashcat's rigidBody has no such toggle here, and this is
 // the same rigidBody.setPosition() already used for ordinary recycling).
+// slot.showOnGap is the exact inverse — currently the barrier's own
+// straight end-caps, solid/visible only on gap segments (every other
+// segment has the barrier running straight through with no cap needed).
 function updateHighwayGapState( world, slot ) {
 
 	const isGap = ( ( slot.index % HW_UTURN_EVERY ) + HW_UTURN_EVERY ) % HW_UTURN_EVERY === 0;
@@ -4426,6 +4465,12 @@ function updateHighwayGapState( world, slot ) {
 
 		b.visual.visible = ! isGap;
 		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
+
+	}
+	for ( const b of slot.showOnGap ) {
+
+		b.visual.visible = isGap;
+		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? b.localY : -500, z + b.localZ ], true );
 
 	}
 
