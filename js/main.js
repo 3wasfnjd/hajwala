@@ -3863,6 +3863,18 @@ const HW_TRAILING_SEGMENTS = 4;
 const HW_LEADING_SEGMENTS = 5;
 const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
 
+// The vehicle's own scale (root_scale 0.5, VEHICLE_SCALE_OVERRIDES) was
+// tuned to fit the classic track's stylized GridMap cells, not real-world
+// meters — but this whole highway mode (lane width, barrier height,
+// streetlight height) IS built at real-world scale, so the same car
+// reads as toy-sized next to it (reported: "طالعه صغيره بالنسبه للخرسانه
+// والشارع والاضاءه"). Scaled up for highway only via the same
+// radius/0.5 visual-scale convention AR modes already use for the
+// opposite case (shrinking) — see the npcConfigs.map() and
+// startNormalMode's own vehicle.init() call sites.
+const HW_VEHICLE_SCALE = 2;
+const HW_SPHERE_RADIUS = 0.5 * HW_VEHICLE_SCALE;
+
 const HW_BARRIER_HEIGHT = 0.4; // below the truck's own final body height (0.575) — see createHighwaySegmentProps' own comment
 // Median surface height — flush with the road (matches the lane
 // asphalt's own y=0.005) rather than a raised curb: the median used to
@@ -4530,8 +4542,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// covers Z 0..HW_SEGMENT_LENGTH) so the first tree/light pair is
 		// already in view rather than behind the player.
 		const laneCenterX = HW_MEDIAN_HALF + HW_ROAD_WIDTH - HW_LANE_WIDTH / 2;
-		vehicleSpawn = { position: [ laneCenterX, 0.5, 5 ], angle: 0 };
-		sphereBody = createSphereBody( world, vehicleSpawn.position );
+		vehicleSpawn = { position: [ laneCenterX, HW_SPHERE_RADIUS, 5 ], angle: 0 };
+		sphereBody = createSphereBody( world, vehicleSpawn.position, HW_SPHERE_RADIUS );
 
 	} else if ( freeRoam ) {
 
@@ -4774,6 +4786,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	}
 
 	const vehicle = new Vehicle();
+	if ( highway ) vehicle.sphereRadius = HW_SPHERE_RADIUS;
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
 
@@ -4787,6 +4800,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	}
 
 	const vehicleGroup = vehicle.init( models[ vehicleKey ] || models[ 'vehicle-truck-yellow' ] );
+	if ( highway ) vehicleGroup.scale.setScalar( HW_VEHICLE_SCALE ); // matches vehicle.sphereRadius above — see HW_VEHICLE_SCALE's own comment
 	scene.add( vehicleGroup );
 	addCustomTextDecals( vehicleGroup, customText );
 	const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
