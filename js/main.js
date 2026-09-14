@@ -3982,8 +3982,10 @@ function createHighwaySegmentProps( models, world ) {
 
 function buildHighwayWorld( scene, models, world ) {
 
-	scene.background = new THREE.Color( 0xdfc9a3 );
-	scene.fog = new THREE.Fog( 0xe8d3ab, 60, 260 );
+	// A proper hazy desert-sky blue instead of the flat sand-brown it was
+	// before (reported: "السماء لونها بني" — the sky looked brown).
+	scene.background = new THREE.Color( 0x8fc0dd );
+	scene.fog = new THREE.Fog( 0xaed4e6, 60, 260 );
 
 	// Median strip — flat raised concrete band down the middle.
 	const median = new THREE.Mesh(
