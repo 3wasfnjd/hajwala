@@ -218,6 +218,7 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
+	'highway-tree', 'highway-streetlight', 'highway-gas-station',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -785,6 +786,13 @@ function createModeMenu( { arAvailable } ) {
 								<div class="hw-m-label">الوضع الحر</div>
 								<div class="hw-m-sub">تحكم حر بدون مضمار</div>
 							</button>
+							<button class="hw-mode-card hw-web-highway-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#e0b45b" stroke-width="1.6">
+									<path d="M4 21 9 3M20 21 15 3" /><path d="M11 8h2M10.3 13h3.4M9.6 18h4.8" stroke-dasharray="2 2"/>
+								</svg>
+								<div class="hw-m-label">الطريق</div>
+								<div class="hw-m-sub">هاي واي صحراوي</div>
+							</button>
 						</div>
 						<a href="#" class="hw-back-link hw-back-link-web">‹ رجوع</a>
 					</div>
@@ -968,6 +976,7 @@ function createModeMenu( { arAvailable } ) {
 		const stepWeb = menu.querySelector( '.hw-step-web' );
 		const webTrackBtn = menu.querySelector( '.hw-web-track-btn' );
 		const webFreeBtn = menu.querySelector( '.hw-web-free-btn' );
+		const webHighwayBtn = menu.querySelector( '.hw-web-highway-btn' );
 		const backLinkWeb = menu.querySelector( '.hw-back-link-web' );
 
 		function revealStepWeb() {
@@ -987,20 +996,26 @@ function createModeMenu( { arAvailable } ) {
 
 		} );
 
-		function chooseWeb( freeRoam ) {
+		// variant: 'track' (classic GridMap race) | 'freeroam' (open night
+		// arena) | 'highway' (endless desert two-way highway). Only one of
+		// freeRoam/highway is ever true — startNormalMode branches on
+		// whichever is set, classic track otherwise.
+		function chooseWeb( variant ) {
 
 			requestFullscreenSafe();
 			startBgMusic();
 			menu.remove();
 			resolve( {
-				choice: 'normal', customText: customTextValue.trim(), freeRoam,
+				choice: 'normal', customText: customTextValue.trim(),
+				freeRoam: variant === 'freeroam', highway: variant === 'highway',
 				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl,
 			} );
 
 		}
 
-		webTrackBtn.addEventListener( 'click', () => chooseWeb( false ) );
-		webFreeBtn.addEventListener( 'click', () => chooseWeb( true ) );
+		webTrackBtn.addEventListener( 'click', () => chooseWeb( 'track' ) );
+		webFreeBtn.addEventListener( 'click', () => chooseWeb( 'freeroam' ) );
+		webHighwayBtn.addEventListener( 'click', () => chooseWeb( 'highway' ) );
 
 		// AR now goes straight into the session — which of the three AR
 		// experiences (room-drive / floating track / floating arena) is
@@ -3699,16 +3714,414 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 
 }
 
+// ─── الطريق (HIGHWAY) MODE ──────────────────────────────────
+// An endless two-way desert highway: a raised median (trees + street-
+// lights) down the middle, 4 marked lanes each direction, sand shoulder,
+// a dirt transition band, then open desert on both sides — reference:
+// a straight Saudi/Gulf-style highway shot from above. "Endless" is
+// done two different ways depending on what's actually expensive:
+//   - The ground itself (asphalt/median/shoulder/dirt/dune strips) is
+//     just a handful of long flat planes with a repeating texture — one
+//     extra-long plane costs the same as a short one (still 2
+//     triangles), so these are simply built ~20,000 units long once and
+//     never touched again. No player will ever drive far enough one way
+//     to reach the end of that within a normal session.
+//   - Discrete objects (median tree clumps, streetlight poles) DO cost
+//     real triangles/draw calls per instance, so those use an actual
+//     recycling system: a fixed small pool of prefab groups, each
+//     assigned a "slot index" along Z, repositioned (not rebuilt) once
+//     the player gets far enough past it that it can jump to the far
+//     end of the active window instead — the classic endless-runner
+//     conveyor-belt technique. Gas stations use the same technique with
+//     a sparser, wider spacing.
+
+const HW_LANE_WIDTH = 3.2;
+const HW_LANES_PER_DIR = 4;
+const HW_ROAD_WIDTH = HW_LANE_WIDTH * HW_LANES_PER_DIR; // one direction's paved width
+const HW_MEDIAN_HALF = 3; // median half-width (curb to curb from center)
+const HW_SHOULDER = 2.2; // sand shoulder right at the asphalt edge
+const HW_DIRT_WIDTH = 7; // transitional dirt band before open desert
+// Total corridor half-width actually built with ground planes; the
+// desert backdrop plane extends well past this so driving off-road
+// never runs out of supporting ground.
+const HW_CORRIDOR_HALF = HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER + HW_DIRT_WIDTH;
+const HW_GROUND_HALF_X = 160;
+const HW_GROUND_HALF_Z = 20000; // "endless" in practice — see note above
+
+const HW_SEGMENT_LENGTH = 60; // Z length of one recyclable prop slot
+const HW_TRAILING_SEGMENTS = 4;
+const HW_LEADING_SEGMENTS = 5;
+const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
+
+// Gas stations: much sparser, one every several highway segments, on
+// alternating sides of the road out past the dirt band.
+const HW_POI_SPACING = HW_SEGMENT_LENGTH * 6;
+const HW_POI_TRAILING = 1;
+const HW_POI_LEADING = 2;
+const HW_POI_ACTIVE = HW_POI_TRAILING + HW_POI_LEADING + 1;
+
+// models/highway-gas-station.glb is a whole site plan (building + canopy
+// + landscaping + its own driveway), not a single compact prop, sourced
+// at an arbitrary real-world scale — its own raw bounding box, measured
+// once directly from the file (X=width, Y=height, Z=depth):
+const HW_GAS_RAW_SIZE = { x: 300.3062286376953, y: 27.23973846435547, z: 115.63184475844616 };
+// Scaled by WIDTH rather than height (wrapHighwayProp's usual axis):
+// this asset is wide-and-flat, not tall, so matching it to a target
+// HEIGHT like the tree/streetlight would barely shrink its enormous
+// footprint and leave it sprawling across the road itself (exactly what
+// happened before this was measured properly). Target 45 units wide —
+// a modest roadside lot.
+const HW_GAS_TARGET_WIDTH = 45;
+const HW_GAS_SCALE = HW_GAS_TARGET_WIDTH / HW_GAS_RAW_SIZE.x;
+// applyHighwayPOITransform rotates the whole site ±90° to face the
+// road, which swaps which world axis its footprint extends along — its
+// raw Z (depth) ends up spanning world X, so THAT's the half-extent that
+// has to clear the corridor, not its (now Z-facing) width.
+const HW_GAS_SCALED_DEPTH = HW_GAS_RAW_SIZE.z * HW_GAS_SCALE;
+
+// Diffuse-only canvas texture for one direction's paved lanes: dashed
+// white dividers between same-direction lanes, a solid white line at
+// the outer (shoulder) edge, solid yellow at the inner (median) edge —
+// mirrored=true flips which edge gets the yellow line so the same
+// drawing function serves both directions without a second code path.
+function createHighwayLaneTexture( mirrored ) {
+
+	const size = 512;
+	const pxPerUnit = size / HW_ROAD_WIDTH;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = size;
+	canvas.height = size;
+	const ctx = canvas.getContext( '2d' );
+
+	ctx.fillStyle = '#3a3733';
+	ctx.fillRect( 0, 0, size, size );
+	for ( let i = 0; i < 900; i ++ ) {
+
+		const x = Math.random() * size, y = Math.random() * size;
+		const v = 20 + Math.random() * 26;
+		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.2 + Math.random() * 0.3 })`;
+		ctx.fillRect( x, y, 1.3, 1.3 );
+
+	}
+
+	const laneLineX = ( i ) => i * HW_LANE_WIDTH * pxPerUnit;
+	const drawX = ( u ) => mirrored ? size - u : u;
+
+	// Dashed white dividers between the HW_LANES_PER_DIR-1 internal lane
+	// pairs — vertical dashes repeating down the texture's own length so
+	// the plane's Z-repeat carries them the rest of the way down the road.
+	ctx.strokeStyle = 'rgba(235,232,222,0.95)';
+	ctx.lineWidth = Math.max( 2, 0.12 * pxPerUnit );
+	for ( let lane = 1; lane < HW_LANES_PER_DIR; lane ++ ) {
+
+		const x = drawX( laneLineX( lane ) );
+		ctx.setLineDash( [ size * 0.09, size * 0.07 ] );
+		ctx.beginPath();
+		ctx.moveTo( x, 0 );
+		ctx.lineTo( x, size );
+		ctx.stroke();
+
+	}
+
+	ctx.setLineDash( [] );
+
+	// Solid outer edge (shoulder side, lane 0's outer edge).
+	ctx.strokeStyle = 'rgba(235,232,222,0.95)';
+	ctx.lineWidth = Math.max( 2, 0.14 * pxPerUnit );
+	ctx.beginPath();
+	ctx.moveTo( drawX( laneLineX( 0 ) ), 0 );
+	ctx.lineTo( drawX( laneLineX( 0 ) ), size );
+	ctx.stroke();
+
+	// Solid yellow inner edge (median side).
+	ctx.strokeStyle = 'rgba(224,166,42,0.95)';
+	ctx.lineWidth = Math.max( 2, 0.14 * pxPerUnit );
+	ctx.beginPath();
+	ctx.moveTo( drawX( laneLineX( HW_LANES_PER_DIR ) ), 0 );
+	ctx.lineTo( drawX( laneLineX( HW_LANES_PER_DIR ) ), size );
+	ctx.stroke();
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.wrapS = THREE.ClampToEdgeWrapping; // fixed lane layout across X — never repeats sideways
+	texture.wrapT = THREE.RepeatWrapping; // tiles endlessly down the road's length
+	return texture;
+
+}
+
+// Recenters a loaded highway prop model (tree/streetlight — real-world
+// Sketchfab/CGTrader exports, arbitrary origin/scale, unlike this
+// project's own Godot-pipeline or pre-calibrated vehicle assets) into a
+// wrapper Group whose local origin sits at the base center of its own
+// bounding box, uniformly scaled so its height matches `targetHeight`.
+// Doing this once against the shared `models[name]` source and reusing
+// the wrapper "recipe" (offset + scale) for every subsequent clone would
+// be marginally cheaper, but there are only ever a handful of live
+// instances at once (see the segment pool above) — recomputing a Box3
+// per clone is not worth the extra bookkeeping here.
+function wrapHighwayProp( source, targetHeight ) {
+
+	const inst = source.clone( true );
+	const box = new THREE.Box3().setFromObject( inst );
+	const size = new THREE.Vector3();
+	box.getSize( size );
+	const scale = targetHeight / Math.max( size.y, 0.0001 );
+	return wrapHighwayPropAt( inst, box, scale );
+
+}
+
+// Same recentering as wrapHighwayProp, but scaled by an already-known
+// factor instead of measuring+deriving it from the model's own height —
+// for a wide-and-flat asset like the gas station site plan, matching a
+// target HEIGHT would barely shrink its enormous footprint (see
+// HW_GAS_SCALE's own comment).
+function wrapHighwayPropByScale( source, scale ) {
+
+	const inst = source.clone( true );
+	const box = new THREE.Box3().setFromObject( inst );
+	return wrapHighwayPropAt( inst, box, scale );
+
+}
+
+function wrapHighwayPropAt( inst, box, scale ) {
+
+	const wrapper = new THREE.Group();
+	inst.position.set(
+		- ( box.min.x + box.max.x ) / 2,
+		- box.min.y,
+		- ( box.min.z + box.max.z ) / 2
+	);
+	wrapper.add( inst );
+	wrapper.scale.setScalar( scale );
+	return wrapper;
+
+}
+
+// One recyclable prop slot: a median tree clump + a streetlight pole on
+// each side of the median, all at fixed local offsets within the slot
+// (see buildHighwayWorld's own comment — recycling only ever repositions
+// this group along Z, it never rebuilds the contents).
+function createHighwaySegmentProps( models ) {
+
+	const group = new THREE.Group();
+
+	const tree = wrapHighwayProp( models[ 'highway-tree' ], 9 );
+	tree.position.set( 0, 0, HW_SEGMENT_LENGTH * 0.33 );
+	group.add( tree );
+
+	for ( const side of [ -1, 1 ] ) {
+
+		const light = wrapHighwayProp( models[ 'highway-streetlight' ], 9 );
+		light.position.set( side * ( HW_MEDIAN_HALF - 0.3 ), 0, HW_SEGMENT_LENGTH * 0.75 );
+		group.add( light );
+
+	}
+
+	return group;
+
+}
+
+// A gas station slot's side (alternating, so consecutive stations don't
+// pile up on the same shoulder) and facing depend only on its slot
+// index's parity — shared by both createHighwayPOI (initial build) and
+// updateHighwayRecycling (repositioning an existing slot into a new
+// index) so recycling never needs to touch the model itself, only its
+// transform.
+function applyHighwayPOITransform( group, slotIndex ) {
+
+	const side = ( ( ( slotIndex % 2 ) + 2 ) % 2 === 0 ) ? 1 : -1; // sign-safe mod for negative indices
+	// Clears the corridor (median+road+shoulder+dirt) plus half the
+	// site's own rotated footprint, so its NEAR edge lands a few units
+	// into the open desert past the dirt band instead of the site's
+	// CENTER sitting there (which would still spill its far half back
+	// across the road — see HW_GAS_SCALED_DEPTH's own comment).
+	group.position.x = side * ( HW_CORRIDOR_HALF + HW_GAS_SCALED_DEPTH / 2 + 3 );
+	// Face the station back toward the road, mirrored per side.
+	group.rotation.y = side > 0 ? - Math.PI / 2 : Math.PI / 2;
+
+}
+
+// One recyclable gas station slot, set back past the dirt band.
+function createHighwayPOI( models, slotIndex ) {
+
+	const wrapper = wrapHighwayPropByScale( models[ 'highway-gas-station' ], HW_GAS_SCALE );
+	applyHighwayPOITransform( wrapper, slotIndex );
+	return wrapper;
+
+}
+
+function buildHighwayWorld( scene, models, world ) {
+
+	scene.background = new THREE.Color( 0xdfc9a3 );
+	scene.fog = new THREE.Fog( 0xe8d3ab, 60, 260 );
+
+	// Median strip — flat raised concrete band down the middle.
+	const median = new THREE.Mesh(
+		new THREE.BoxGeometry( HW_MEDIAN_HALF * 2, 0.2, HW_GROUND_HALF_Z * 2 ),
+		new THREE.MeshStandardMaterial( { color: 0xb7a98c, roughness: 0.95 } )
+	);
+	median.position.set( 0, 0.1, 0 );
+	scene.add( median );
+
+	// Two directions' paved lanes, mirrored across the median.
+	for ( const side of [ -1, 1 ] ) {
+
+		const texture = createHighwayLaneTexture( side < 0 );
+		texture.repeat.set( 1, HW_GROUND_HALF_Z * 2 / 8 ); // 8-unit texture tile down the road's length
+
+		const asphalt = new THREE.Mesh(
+			new THREE.PlaneGeometry( HW_ROAD_WIDTH, HW_GROUND_HALF_Z * 2 ),
+			new THREE.MeshStandardMaterial( { map: texture, roughness: 0.95 } )
+		);
+		asphalt.rotation.x = - Math.PI / 2;
+		asphalt.position.set( side * ( HW_MEDIAN_HALF + HW_ROAD_WIDTH / 2 ), 0.005, 0 );
+		scene.add( asphalt );
+
+	}
+
+	// Sand shoulder + dirt transition, one texture band per direction
+	// (tinted slightly differently by vertex-free flat color blending is
+	// overkill here — a single sand texture reused from the free-roam/
+	// classic track dressing already reads fine as "shoulder into dirt").
+	const shoulderWidth = HW_SHOULDER + HW_DIRT_WIDTH;
+	for ( const side of [ -1, 1 ] ) {
+
+		const sandTexture = createSandTexture();
+		sandTexture.repeat.set( shoulderWidth / 6, HW_GROUND_HALF_Z * 2 / 6 );
+		const shoulder = new THREE.Mesh(
+			new THREE.PlaneGeometry( shoulderWidth, HW_GROUND_HALF_Z * 2 ),
+			new THREE.MeshStandardMaterial( { map: sandTexture, roughness: 1 } )
+		);
+		shoulder.rotation.x = - Math.PI / 2;
+		shoulder.position.set(
+			side * ( HW_MEDIAN_HALF + HW_ROAD_WIDTH + shoulderWidth / 2 ), 0, 0
+		);
+		scene.add( shoulder );
+
+	}
+
+	// Open desert backdrop past the dirt band on both sides — a single
+	// plane spanning the FULL corridor width, sitting under the asphalt
+	// and shoulder bands rather than beside them (simplest way to cover
+	// "everything past the dirt, both sides, forever" with one mesh).
+	// That means its footprint fully overlaps the asphalt/shoulder above
+	// it, only ~0.03-0.04 units below — same near-coplanar setup that
+	// caused كوميك mode's road-kit ground to z-fight and intermittently
+	// win the depth test at distance/grazing angles (see that mode's own
+	// old comment, back when it existed). Confirmed the same thing here:
+	// the FARTHER of the two mirrored asphalt bands from the camera would
+	// vanish behind this plane — reproduced reliably (not just
+	// occasionally) at any real distance from the origin, and a mild
+	// polygonOffset (4/4, enough for كوميك's tightly-packed road tiles)
+	// wasn't enough to fix it here; this plane is FAR bigger (a
+	// ±20,000-unit span vs. those tiles' 10 units), so depth precision at
+	// typical viewing distances is worse and needs a much stronger push.
+	// 100/100 tested reliable at distances well beyond normal driving
+	// range.
+	const duneTexture = createSandTexture();
+	duneTexture.repeat.set( HW_GROUND_HALF_X * 2 / 10, HW_GROUND_HALF_Z * 2 / 10 );
+	const duneMaterial = new THREE.MeshStandardMaterial( { map: duneTexture, roughness: 1 } );
+	duneMaterial.polygonOffset = true;
+	duneMaterial.polygonOffsetFactor = 100;
+	duneMaterial.polygonOffsetUnits = 100;
+	const dunes = new THREE.Mesh( new THREE.PlaneGeometry( HW_GROUND_HALF_X * 2, HW_GROUND_HALF_Z * 2 ), duneMaterial );
+	dunes.rotation.x = - Math.PI / 2;
+	dunes.position.set( 0, - 0.03, 0 );
+	scene.add( dunes );
+
+	rigidBody.create( world, {
+		shape: box.create( { halfExtents: [ HW_GROUND_HALF_X, 0.5, HW_GROUND_HALF_Z ] } ),
+		motionType: MotionType.STATIC,
+		objectLayer: world._OL_STATIC,
+		position: [ 0, - 0.5, 0 ],
+		friction: 2.5,
+		restitution: 0.0,
+	} );
+
+	// Recyclable tree/streetlight prop slots — pre-built once, centered
+	// on the spawn point (index 0 sits at Z 0..HW_SEGMENT_LENGTH).
+	const segments = [];
+	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
+
+		const index = i - HW_TRAILING_SEGMENTS;
+		const group = createHighwaySegmentProps( models );
+		group.position.z = index * HW_SEGMENT_LENGTH;
+		scene.add( group );
+		segments.push( { group, index } );
+
+	}
+
+	// Recyclable gas-station slots, same technique, much sparser.
+	const pois = [];
+	for ( let i = 0; i < HW_POI_ACTIVE; i ++ ) {
+
+		const index = i - HW_POI_TRAILING;
+		const group = createHighwayPOI( models, index );
+		group.position.z = index * HW_POI_SPACING;
+		scene.add( group );
+		pois.push( { group, index } );
+
+	}
+
+	return { segments, pois };
+
+}
+
+// Called every frame with the player's current world Z: keeps exactly
+// HW_ACTIVE_SEGMENTS (resp. HW_POI_ACTIVE) prop slots alive in a window
+// centered on the player, sliding any slot that fell outside the window
+// to the opposite, still-empty end instead of ever creating/destroying
+// geometry — the standard endless-runner conveyor-belt recycle.
+function updateHighwayRecycling( highwayState, playerZ ) {
+
+	const currentSegment = Math.floor( playerZ / HW_SEGMENT_LENGTH );
+	const segMin = currentSegment - HW_TRAILING_SEGMENTS;
+	const segMax = currentSegment + HW_LEADING_SEGMENTS;
+	for ( const slot of highwayState.segments ) {
+
+		if ( slot.index < segMin ) slot.index += HW_ACTIVE_SEGMENTS;
+		else if ( slot.index > segMax ) slot.index -= HW_ACTIVE_SEGMENTS;
+		else continue;
+		slot.group.position.z = slot.index * HW_SEGMENT_LENGTH;
+
+	}
+
+	const currentPOI = Math.floor( playerZ / HW_POI_SPACING );
+	const poiMin = currentPOI - HW_POI_TRAILING;
+	const poiMax = currentPOI + HW_POI_LEADING;
+	for ( const slot of highwayState.pois ) {
+
+		if ( slot.index < poiMin ) slot.index += HW_POI_ACTIVE;
+		else if ( slot.index > poiMax ) slot.index -= HW_POI_ACTIVE;
+		else continue;
+		slot.group.position.z = slot.index * HW_POI_SPACING;
+		applyHighwayPOITransform( slot.group, slot.index ); // side/facing depend on the new index's parity too
+
+	}
+
+}
+
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } ) {
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, highway, vehicleKey, flagImage } ) {
 
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
 	let trackPath = null, aiDrivers = [], aiExtras = [];
 	let freeRoamHalf = 0;
+	let highwayState = null;
 
-	if ( freeRoam ) {
+	if ( highway ) {
+
+		highwayState = buildHighwayWorld( scene, models, world );
+		// Spawn on the rightmost lane of the +X direction, facing +Z —
+		// matches createHighwaySegmentProps' own slot layout (index 0
+		// covers Z 0..HW_SEGMENT_LENGTH) so the first tree/light pair is
+		// already in view rather than behind the player.
+		const laneCenterX = HW_MEDIAN_HALF + HW_ROAD_WIDTH - HW_LANE_WIDTH / 2;
+		vehicleSpawn = { position: [ laneCenterX, 0.5, 5 ], angle: 0 };
+		sphereBody = createSphereBody( world, vehicleSpawn.position );
+
+	} else if ( freeRoam ) {
 
 		// Open sandbox: no track, no walls — just a big flat ground.
 		const groundSize = 110;
@@ -4130,7 +4543,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 						// near the top of init() (sessionStorage key 'hwRestartRace').
 						try {
 
-							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, vehicleKey, flagImage } ) );
+							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, highway, vehicleKey, flagImage } ) );
 
 						} catch ( e ) { /* ignore — falls back to showing the menu again */ }
 						location.reload();
@@ -4155,6 +4568,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				15,
 				vehicle.spherePos.z - 5.3
 			);
+
+			if ( highwayState ) updateHighwayRecycling( highwayState, vehicle.spherePos.z );
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
@@ -6554,7 +6969,7 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, highway, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
@@ -6584,7 +6999,7 @@ async function init() {
 
 			try {
 
-				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, vehicleKey, flagImage } );
+				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, highway, vehicleKey, flagImage } );
 				break;
 
 			} catch ( e ) {
