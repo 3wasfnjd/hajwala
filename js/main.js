@@ -3877,8 +3877,8 @@ function createHighwayLaneTexture( mirrored ) {
 	canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
 
-	ctx.fillStyle = '#3a3733';
-	ctx.fillRect( 0, 0, size, size ); // fallback tone if the real asphalt texture hasn't loaded yet
+	ctx.fillStyle = '#252320'; // real dark-asphalt tone (matches the darkened basecolor image below) — fallback if it hasn't loaded yet
+	ctx.fillRect( 0, 0, size, size );
 
 	if ( highwayAsphaltImg ) {
 
@@ -3909,7 +3909,7 @@ function createHighwayLaneTexture( mirrored ) {
 	for ( let i = 0; i < 400; i ++ ) {
 
 		const x = Math.random() * size, y = Math.random() * size;
-		const v = 20 + Math.random() * 26;
+		const v = 13 + Math.random() * 17; // darkened to match the real asphalt basecolor's own lower brightness
 		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.12 + Math.random() * 0.18 })`;
 		ctx.fillRect( x, y, 1.3, 1.3 );
 
