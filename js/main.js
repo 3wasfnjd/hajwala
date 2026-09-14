@@ -3859,6 +3859,10 @@ const HW_TRAILING_SEGMENTS = 4;
 const HW_LEADING_SEGMENTS = 5;
 const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
 
+const HW_BARRIER_HEIGHT = 0.4; // below the truck's own final body height (0.575) — see createHighwaySegmentProps' own comment
+const HW_MEDIAN_TOP_Y = 0.2; // median BoxGeometry: position.y=0.1, height 0.2 — top surface
+const HW_UTURN_EVERY = 5; // every Nth segment (by global index) opens a full-width U-turn gap in the median barrier
+
 // Diffuse-only canvas texture for one direction's paved lanes: dashed
 // white dividers between same-direction lanes, a solid white line at
 // the outer (shoulder) edge, solid yellow at the inner (median) edge —
@@ -4149,30 +4153,38 @@ function createHighwaySegmentProps( models, world ) {
 	// BoxGeometry below: position.y=0.1, height 0.2) and gets a matching
 	// KINEMATIC box collider so drifting into the median actually stops
 	// the car instead of ghosting through it.
-	const BARRIER_HEIGHT = 0.9;
-	const MEDIAN_TOP_Y = 0.2;
+	// Height kept below the vehicle's own final body height (0.575 —
+	// truck-body raw bbox Y max 1.15 × root_scale 0.5, see
+	// VEHICLE_SCALE_OVERRIDES' own comment on that 0.5) — reported too
+	// tall relative to the car at the previous 0.9.
+	// Tracked separately from the generic `bodies` array (rather than
+	// just pushed into it like the pole colliders above) because
+	// updateHighwayBarrierGap() needs to toggle these specific ones
+	// per-slot for the periodic U-turn opening — see that function.
+	const barriers = [];
 	for ( const side of [ -1, 1 ] ) {
 
 		const { group: barrierGroup, width: barrierWidth } = wrapHighwayBarrier(
-			models[ 'highway-barrier' ], BARRIER_HEIGHT, HW_SEGMENT_LENGTH
+			models[ 'highway-barrier' ], HW_BARRIER_HEIGHT, HW_SEGMENT_LENGTH
 		);
 		const x = side * ( HW_MEDIAN_HALF - 0.2 );
-		barrierGroup.position.set( x, MEDIAN_TOP_Y, HW_SEGMENT_LENGTH / 2 );
+		const y = HW_MEDIAN_TOP_Y + HW_BARRIER_HEIGHT / 2;
+		barrierGroup.position.set( x, HW_MEDIAN_TOP_Y, HW_SEGMENT_LENGTH / 2 );
 		group.add( barrierGroup );
 
 		const body = rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ barrierWidth / 2, BARRIER_HEIGHT / 2, HW_SEGMENT_LENGTH / 2 ] } ),
+			shape: box.create( { halfExtents: [ barrierWidth / 2, HW_BARRIER_HEIGHT / 2, HW_SEGMENT_LENGTH / 2 ] } ),
 			motionType: MotionType.KINEMATIC,
 			objectLayer: world._OL_STATIC,
-			position: [ x, MEDIAN_TOP_Y + BARRIER_HEIGHT / 2, HW_SEGMENT_LENGTH / 2 ],
+			position: [ x, y, HW_SEGMENT_LENGTH / 2 ],
 			friction: 0.4,
 			restitution: 0.15,
 		} );
-		bodies.push( { body, localX: x, localY: MEDIAN_TOP_Y + BARRIER_HEIGHT / 2, localZ: HW_SEGMENT_LENGTH / 2 } );
+		barriers.push( { visual: barrierGroup, body, localX: x, localY: y, localZ: HW_SEGMENT_LENGTH / 2 } );
 
 	}
 
-	return { group, bodies };
+	return { group, bodies, barriers };
 
 }
 
@@ -4300,11 +4312,12 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const { group, bodies } = createHighwaySegmentProps( models, world );
+		const { group, bodies, barriers } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		const slot = { group, index, bodies };
+		const slot = { group, index, bodies, barriers };
 		repositionHighwaySegmentBodies( world, slot );
+		updateHighwayBarrierGap( world, slot );
 		segments.push( slot );
 
 	}
@@ -4330,6 +4343,27 @@ function repositionHighwaySegmentBodies( world, slot ) {
 
 }
 
+// Opens a full-width U-turn gap in the median barrier every HW_UTURN_EVERY
+// segments (by global index, so it lands on the same segments every time
+// a slot cycles back around — not just "whichever slot happens to be
+// here"). Hides the barrier mesh and drops its collider far below the
+// world (cheaper/simpler than a real enable/disable — crashcat's
+// rigidBody has no such toggle here, and this is the same
+// rigidBody.setPosition() already used for ordinary recycling) so the
+// whole HW_SEGMENT_LENGTH stretch is freely driveable across the median.
+function updateHighwayBarrierGap( world, slot ) {
+
+	const isGap = ( ( slot.index % HW_UTURN_EVERY ) + HW_UTURN_EVERY ) % HW_UTURN_EVERY === 0;
+	const z = slot.group.position.z;
+	for ( const b of slot.barriers ) {
+
+		b.visual.visible = ! isGap;
+		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
+
+	}
+
+}
+
 // Called every frame with the player's current world Z: keeps exactly
 // HW_ACTIVE_SEGMENTS prop slots alive in a window centered on the
 // player, sliding any slot that fell outside the window to the
@@ -4348,6 +4382,7 @@ function updateHighwayRecycling( highwayState, playerZ ) {
 		else continue;
 		slot.group.position.z = slot.index * HW_SEGMENT_LENGTH;
 		repositionHighwaySegmentBodies( highwayState.world, slot );
+		updateHighwayBarrierGap( highwayState.world, slot );
 
 	}
 
