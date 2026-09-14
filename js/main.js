@@ -336,13 +336,21 @@ function applyCamryBodyColor( scene, hexColor, boost ) {
 
 const models = {};
 
-// Real asphalt photo the user supplied for الطريق (highway) mode's road
-// surface — a small seamless-mirrored grain crop, drawn tiled into
-// createHighwayLaneTexture()'s canvas as a multiply-blended detail layer
-// over the existing flat base color, rather than replacing it outright:
-// the source is a screenshot's own baked lighting/color grade, which
-// wouldn't match this scene's lighting if used as a flat diffuse map.
+// Real tileable asphalt PBR surface (Quixel-style scan: basecolor/normal/
+// roughness) the user supplied for الطريق (highway) mode's road, in place
+// of the old flat-fill + procedural-noise look. The source basecolor/
+// normal/ORM textures ship with their own baked lane lines (a plain
+// 2-lane layout) that don't match this game's 4-lanes-per-direction dash
+// pattern, so those bands were patched out with clean asphalt before
+// export — see the asset-prep notes kept alongside the originals. The
+// basecolor is drawn tiled directly into createHighwayLaneTexture()'s
+// canvas (this game's own dashed/solid lines painted on top, at this
+// game's own lane geometry); normal/roughness are plugged into the
+// asphalt material directly as real THREE.Textures, tiling independently
+// of that canvas since they carry no per-lane content of their own.
 let highwayAsphaltImg = null;
+let highwayAsphaltNormalMap = null;
+let highwayAsphaltRoughnessMap = null;
 
 async function loadModels() {
 
@@ -472,6 +480,10 @@ async function loadModels() {
 		img.src = 'images/highway-asphalt.jpg';
 
 	} ) );
+
+	const asphaltTextureLoader = new THREE.TextureLoader();
+	highwayAsphaltNormalMap = asphaltTextureLoader.load( 'images/highway-asphalt-normal.jpg' );
+	highwayAsphaltRoughnessMap = asphaltTextureLoader.load( 'images/highway-asphalt-roughness.jpg' );
 
 	await Promise.all( promises );
 
@@ -3846,38 +3858,39 @@ function createHighwayLaneTexture( mirrored ) {
 	const ctx = canvas.getContext( '2d' );
 
 	ctx.fillStyle = '#3a3733';
-	ctx.fillRect( 0, 0, size, size );
+	ctx.fillRect( 0, 0, size, size ); // fallback tone if the real asphalt texture hasn't loaded yet
 
 	if ( highwayAsphaltImg ) {
 
-		// Tile the real asphalt photo densely (small on-screen tile size)
-		// so its grain reads as fine texture rather than one big repeated
-		// image — multiply-blended at reduced opacity onto the base color
-		// above, so the scene's own lighting/tone still drives the overall
-		// look and only the grain detail comes from the photo.
-		const tile = highwayAsphaltImg.width;
-		const cols = Math.ceil( size / tile ) + 1;
-		ctx.save();
-		ctx.globalAlpha = 0.45;
-		ctx.globalCompositeOperation = 'multiply';
-		for ( let ty = 0; ty < cols; ty ++ ) {
+		// Real basecolor asphalt tile, drawn opaque at its actual physical
+		// size (a 2×2m scan) converted into this canvas's own scale: the
+		// canvas spans HW_ROAD_WIDTH horizontally and a fixed 8-unit strip
+		// of road length vertically (see the plane's texture.repeat below),
+		// so a 2m tile comes out to size*(2/HW_ROAD_WIDTH) px wide by
+		// size*(2/8) px tall — not square, since those two spans use
+		// different real-world lengths, but close enough not to read as
+		// stretched at driving speed.
+		const tileW = size * ( 2 / HW_ROAD_WIDTH );
+		const tileH = size * ( 2 / 8 );
+		const colsX = Math.ceil( size / tileW ) + 1;
+		const colsY = Math.ceil( size / tileH ) + 1;
+		for ( let ty = 0; ty < colsY; ty ++ ) {
 
-			for ( let tx = 0; tx < cols; tx ++ ) {
+			for ( let tx = 0; tx < colsX; tx ++ ) {
 
-				ctx.drawImage( highwayAsphaltImg, tx * tile, ty * tile, tile, tile );
+				ctx.drawImage( highwayAsphaltImg, tx * tileW, ty * tileH, tileW, tileH );
 
 			}
 
 		}
-		ctx.restore();
 
 	}
 
-	for ( let i = 0; i < 900; i ++ ) {
+	for ( let i = 0; i < 400; i ++ ) {
 
 		const x = Math.random() * size, y = Math.random() * size;
 		const v = 20 + Math.random() * 26;
-		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.2 + Math.random() * 0.3 })`;
+		ctx.fillStyle = `rgba(${ v },${ v },${ v + 2 },${ 0.12 + Math.random() * 0.18 })`;
 		ctx.fillRect( x, y, 1.3, 1.3 );
 
 	}
@@ -4038,6 +4051,26 @@ function buildHighwayWorld( scene, models, world ) {
 	median.position.set( 0, 0.1, 0 );
 	scene.add( median );
 
+	// normalMap/roughnessMap carry no per-lane content of their own (unlike
+	// the canvas `map` below, which paints this game's own dashed/solid
+	// lines), so they just tile naturally in both directions at the real
+	// asphalt scan's own physical size (2×2m) — independent of the
+	// canvas's fixed-per-plane UV scheme, since each THREE.Texture keeps
+	// its own repeat/wrap transform even when sharing one geometry's UVs.
+	if ( highwayAsphaltNormalMap ) {
+
+		highwayAsphaltNormalMap.wrapS = highwayAsphaltNormalMap.wrapT = THREE.RepeatWrapping;
+		highwayAsphaltNormalMap.repeat.set( HW_ROAD_WIDTH / 2, HW_GROUND_HALF_Z * 2 / 2 );
+
+	}
+
+	if ( highwayAsphaltRoughnessMap ) {
+
+		highwayAsphaltRoughnessMap.wrapS = highwayAsphaltRoughnessMap.wrapT = THREE.RepeatWrapping;
+		highwayAsphaltRoughnessMap.repeat.set( HW_ROAD_WIDTH / 2, HW_GROUND_HALF_Z * 2 / 2 );
+
+	}
+
 	// Two directions' paved lanes, mirrored across the median.
 	for ( const side of [ -1, 1 ] ) {
 
@@ -4046,7 +4079,12 @@ function buildHighwayWorld( scene, models, world ) {
 
 		const asphalt = new THREE.Mesh(
 			new THREE.PlaneGeometry( HW_ROAD_WIDTH, HW_GROUND_HALF_Z * 2 ),
-			new THREE.MeshStandardMaterial( { map: texture, roughness: 0.95 } )
+			new THREE.MeshStandardMaterial( {
+				map: texture,
+				normalMap: highwayAsphaltNormalMap,
+				roughnessMap: highwayAsphaltRoughnessMap,
+				roughness: highwayAsphaltRoughnessMap ? 1 : 0.95,
+			} )
 		);
 		asphalt.rotation.x = - Math.PI / 2;
 		asphalt.position.set( side * ( HW_MEDIAN_HALF + HW_ROAD_WIDTH / 2 ), 0.005, 0 );
