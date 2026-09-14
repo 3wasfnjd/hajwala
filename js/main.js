@@ -3861,7 +3861,8 @@ const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
 
 const HW_BARRIER_HEIGHT = 0.4; // below the truck's own final body height (0.575) — see createHighwaySegmentProps' own comment
 const HW_MEDIAN_TOP_Y = 0.2; // median BoxGeometry: position.y=0.1, height 0.2 — top surface
-const HW_UTURN_EVERY = 5; // every Nth segment (by global index) opens a full-width U-turn gap in the median barrier
+const HW_UTURN_EVERY = 5; // every Nth segment (by global index) opens a U-turn gap in the median barrier
+const HW_UTURN_GAP_LENGTH = 16; // kept short/modest per feedback ("صغره لا تخليه كبير") — not the whole HW_SEGMENT_LENGTH
 
 // Diffuse-only canvas texture for one direction's paved lanes: dashed
 // white dividers between same-direction lanes, a solid white line at
@@ -4084,7 +4085,15 @@ function createHighwaySegmentProps( models, world ) {
 	const group = new THREE.Group();
 	const bodies = [];
 
-	const addPoleCollider = ( x, z, radius ) => {
+	// Tree/streetlight colliders are gap-toggled (see hideOnGap below)
+	// rather than pushed into the generic `bodies` array — a U-turn
+	// segment removes them entirely ("ازل منه الاضاءه والاشجار"),
+	// regardless of exactly where they'd otherwise sit relative to the
+	// gap itself.
+	const hideOnGap = [];
+	const showOnGap = [];
+
+	const addGapPoleCollider = ( visual, x, z, radius ) => {
 
 		const body = rigidBody.create( world, {
 			shape: cylinder.create( { halfHeight: HW_PROP_HEIGHT / 2, radius } ),
@@ -4094,7 +4103,7 @@ function createHighwaySegmentProps( models, world ) {
 			friction: 0.4,
 			restitution: 0.15,
 		} );
-		bodies.push( { body, localX: x, localY: HW_PROP_HEIGHT / 2, localZ: z } );
+		hideOnGap.push( { visual, body, localX: x, localY: HW_PROP_HEIGHT / 2, localZ: z } );
 
 	};
 
@@ -4102,7 +4111,7 @@ function createHighwaySegmentProps( models, world ) {
 	const tree = wrapHighwayProp( models[ 'highway-tree' ], HW_PROP_HEIGHT );
 	tree.position.set( 0, 0, treeZ );
 	group.add( tree );
-	addPoleCollider( 0, treeZ, 0.35 ); // trunk-width collider — the canopy above is decorative only
+	addGapPoleCollider( tree, 0, treeZ, 0.35 ); // trunk-width collider — the canopy above is decorative only
 
 	const lightZ = HW_SEGMENT_LENGTH * 0.75;
 	for ( const side of [ -1, 1 ] ) {
@@ -4118,7 +4127,7 @@ function createHighwaySegmentProps( models, world ) {
 		// في الشارع" — confirmed by a top-down render of the raw model).
 		if ( side < 0 ) light.rotation.y = Math.PI;
 		group.add( light );
-		addPoleCollider( x, lightZ, 0.16 );
+		addGapPoleCollider( light, x, lightZ, 0.16 );
 
 	}
 
@@ -4146,45 +4155,82 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// Median concrete barrier, one instance per side stretched to span
-	// this whole segment length (see wrapHighwayBarrier's own comment on
-	// why one stretched instance instead of many tiled copies). Sits on
-	// top of the median strip (top surface at y=0.2 — see the median
-	// BoxGeometry below: position.y=0.1, height 0.2) and gets a matching
-	// KINEMATIC box collider so drifting into the median actually stops
-	// the car instead of ghosting through it.
+	// Median concrete barrier. Split into 3 pieces per side rather than
+	// one continuous run the full HW_SEGMENT_LENGTH: a fixed "before" and
+	// "after" piece that are ALWAYS there (just normal continuous
+	// barrier), flanking a short middle "gap" piece exactly
+	// HW_UTURN_GAP_LENGTH long that gets hidden — see hideOnGap below —
+	// only on segments the recycler has designated a U-turn opening
+	// (every HW_UTURN_EVERY-th global index). On every other segment the
+	// gap piece stays visible/solid, so the three pieces read as one
+	// unbroken barrier with no visible seam.
+	// Sits on top of the median strip (top surface at y=0.2 — see the
+	// median BoxGeometry below: position.y=0.1, height 0.2) with a
+	// matching KINEMATIC box collider per piece so drifting into it
+	// actually stops the car instead of ghosting through — except the gap
+	// piece specifically, whose whole point is to NOT stop the car once
+	// it's a U-turn opening.
 	// Height kept below the vehicle's own final body height (0.575 —
 	// truck-body raw bbox Y max 1.15 × root_scale 0.5, see
 	// VEHICLE_SCALE_OVERRIDES' own comment on that 0.5) — reported too
 	// tall relative to the car at the previous 0.9.
-	// Tracked separately from the generic `bodies` array (rather than
-	// just pushed into it like the pole colliders above) because
-	// updateHighwayBarrierGap() needs to toggle these specific ones
-	// per-slot for the periodic U-turn opening — see that function.
-	const barriers = [];
+	const gapStart = ( HW_SEGMENT_LENGTH - HW_UTURN_GAP_LENGTH ) / 2;
+	const gapEnd = gapStart + HW_UTURN_GAP_LENGTH;
+	const barrierPieces = [
+		{ zStart: 0, zEnd: gapStart, isGapPiece: false },
+		{ zStart: gapStart, zEnd: gapEnd, isGapPiece: true },
+		{ zStart: gapEnd, zEnd: HW_SEGMENT_LENGTH, isGapPiece: false },
+	];
 	for ( const side of [ -1, 1 ] ) {
 
-		const { group: barrierGroup, width: barrierWidth } = wrapHighwayBarrier(
-			models[ 'highway-barrier' ], HW_BARRIER_HEIGHT, HW_SEGMENT_LENGTH
-		);
 		const x = side * ( HW_MEDIAN_HALF - 0.2 );
 		const y = HW_MEDIAN_TOP_Y + HW_BARRIER_HEIGHT / 2;
-		barrierGroup.position.set( x, HW_MEDIAN_TOP_Y, HW_SEGMENT_LENGTH / 2 );
-		group.add( barrierGroup );
+		for ( const piece of barrierPieces ) {
 
-		const body = rigidBody.create( world, {
-			shape: box.create( { halfExtents: [ barrierWidth / 2, HW_BARRIER_HEIGHT / 2, HW_SEGMENT_LENGTH / 2 ] } ),
-			motionType: MotionType.KINEMATIC,
-			objectLayer: world._OL_STATIC,
-			position: [ x, y, HW_SEGMENT_LENGTH / 2 ],
-			friction: 0.4,
-			restitution: 0.15,
-		} );
-		barriers.push( { visual: barrierGroup, body, localX: x, localY: y, localZ: HW_SEGMENT_LENGTH / 2 } );
+			const length = piece.zEnd - piece.zStart;
+			const z = ( piece.zStart + piece.zEnd ) / 2;
+			const { group: barrierGroup, width: barrierWidth } = wrapHighwayBarrier(
+				models[ 'highway-barrier' ], HW_BARRIER_HEIGHT, length
+			);
+			barrierGroup.position.set( x, HW_MEDIAN_TOP_Y, z );
+			group.add( barrierGroup );
+
+			const body = rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ barrierWidth / 2, HW_BARRIER_HEIGHT / 2, length / 2 ] } ),
+				motionType: MotionType.KINEMATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ x, y, z ],
+				friction: 0.4,
+				restitution: 0.15,
+			} );
+
+			if ( piece.isGapPiece ) hideOnGap.push( { visual: barrierGroup, body, localX: x, localY: y, localZ: z } );
+			else bodies.push( { body, localX: x, localY: y, localZ: z } );
+
+		}
 
 	}
 
-	return { group, bodies, barriers };
+	// U-turn connector patch — real asphalt-toned pavement across the
+	// gap so it reads as a driveable opening rather than just leftover
+	// median surface, shown only on the same segments as the barrier
+	// gap above. A flat color (matching the darkened asphalt tone from
+	// createHighwayLaneTexture) rather than a textured material: this is
+	// a small patch crossed briefly at an angle, not a straightaway
+	// that's ever scrutinized up close. Widened slightly past the
+	// median's own edges so it overlaps into each carriageway's own
+	// asphalt with no seam/gap at the join.
+	const uturnPatch = new THREE.Mesh(
+		new THREE.PlaneGeometry( HW_MEDIAN_HALF * 2 + 1.6, HW_UTURN_GAP_LENGTH ),
+		new THREE.MeshStandardMaterial( { color: 0x252320, roughness: 0.95 } )
+	);
+	uturnPatch.rotation.x = - Math.PI / 2;
+	uturnPatch.position.set( 0, HW_MEDIAN_TOP_Y + 0.001, ( gapStart + gapEnd ) / 2 );
+	uturnPatch.visible = false;
+	group.add( uturnPatch );
+	showOnGap.push( uturnPatch );
+
+	return { group, bodies, hideOnGap, showOnGap };
 
 }
 
@@ -4312,12 +4358,12 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const { group, bodies, barriers } = createHighwaySegmentProps( models, world );
+		const { group, bodies, hideOnGap, showOnGap } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		const slot = { group, index, bodies, barriers };
+		const slot = { group, index, bodies, hideOnGap, showOnGap };
 		repositionHighwaySegmentBodies( world, slot );
-		updateHighwayBarrierGap( world, slot );
+		updateHighwayGapState( world, slot );
 		segments.push( slot );
 
 	}
@@ -4343,22 +4389,30 @@ function repositionHighwaySegmentBodies( world, slot ) {
 
 }
 
-// Opens a full-width U-turn gap in the median barrier every HW_UTURN_EVERY
-// segments (by global index, so it lands on the same segments every time
-// a slot cycles back around — not just "whichever slot happens to be
-// here"). Hides the barrier mesh and drops its collider far below the
-// world (cheaper/simpler than a real enable/disable — crashcat's
-// rigidBody has no such toggle here, and this is the same
-// rigidBody.setPosition() already used for ordinary recycling) so the
-// whole HW_SEGMENT_LENGTH stretch is freely driveable across the median.
-function updateHighwayBarrierGap( world, slot ) {
+// Opens a short U-turn gap in the median every HW_UTURN_EVERY segments
+// (by global index, so it lands on the same segments every time a slot
+// cycles back around — not just "whichever slot happens to be here").
+// slot.hideOnGap covers everything a U-turn segment removes — the tree,
+// both streetlights, and the barrier's own middle gap-piece (see
+// createHighwaySegmentProps): hidden and, for anything with a collider,
+// dropped far below the world (cheaper/simpler than a real enable/
+// disable — crashcat's rigidBody has no such toggle here, and this is
+// the same rigidBody.setPosition() already used for ordinary recycling).
+// slot.showOnGap is the reverse — currently just the U-turn asphalt
+// connector patch, shown only on gap segments.
+function updateHighwayGapState( world, slot ) {
 
 	const isGap = ( ( slot.index % HW_UTURN_EVERY ) + HW_UTURN_EVERY ) % HW_UTURN_EVERY === 0;
 	const z = slot.group.position.z;
-	for ( const b of slot.barriers ) {
+	for ( const b of slot.hideOnGap ) {
 
 		b.visual.visible = ! isGap;
 		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
+
+	}
+	for ( const visual of slot.showOnGap ) {
+
+		visual.visible = isGap;
 
 	}
 
@@ -4382,7 +4436,7 @@ function updateHighwayRecycling( highwayState, playerZ ) {
 		else continue;
 		slot.group.position.z = slot.index * HW_SEGMENT_LENGTH;
 		repositionHighwaySegmentBodies( highwayState.world, slot );
-		updateHighwayBarrierGap( highwayState.world, slot );
+		updateHighwayGapState( highwayState.world, slot );
 
 	}
 
