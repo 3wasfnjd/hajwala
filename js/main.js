@@ -4444,13 +4444,23 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 	const controls = new Controls();
 
-	const particles = new SmokeTrails( scene, 1, 1 );
+	// الطريق is a straight cruising highway, not a drift track — full-
+	// strength tire smoke (tuned for the classic track's tight corners)
+	// read as excessive there, so both the player's own trail and the
+	// shared AI one are cut down specifically for this mode. Every other
+	// mode's values are unchanged.
+	// emitMultiplier alone bottoms out at 1 particle/wheel/frame
+	// (SmokeTrails.update's own Math.max floor) well before it visually
+	// disappears, so `scale` — which shrinks each puff's actual rendered
+	// size, not the emission rate — is what actually needed to come down
+	// this much to read as "light" rather than a dense trail.
+	const particles = new SmokeTrails( scene, highway ? 0.35 : 1, highway ? 0.18 : 1 );
 	// AI cars share ONE dedicated, deliberately light smoke emitter — same
 	// idea as the AR floating-track/arena fix that stopped the smoke
 	// freeze (real-world scale here, so scale stays 1, only emitMultiplier
 	// is cut) — separate from the player's own full-strength `particles`
 	// so AI stays a light background effect rather than competing with it.
-	const aiParticles = new SmokeTrails( scene, 1, 0.15 );
+	const aiParticles = new SmokeTrails( scene, highway ? 0.35 : 1, highway ? 0.05 : 0.15 );
 	const driftMarks = new DriftMarks( scene, mapParam );
 
 	const audio = new GameAudio();
