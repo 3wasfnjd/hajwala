@@ -3099,6 +3099,71 @@ function create3DRaceCountdown( parent, localPosition, scale = 6 ) {
 
 }
 
+// ─── Speedometer ("طبلون") — a ring gauge + digital km/h readout,
+// bottom-right corner (matching the reference arcade-racer HUD this was
+// requested from). This game's own speed unit (Vehicle.js's linearSpeed,
+// scaled 0..MAX_SPEED) has no real-world meaning, so the display speed
+// is just linearSpeed's fraction of MAX_SPEED scaled up to a plausible
+// top speed instead — purely cosmetic, doesn't touch actual physics.
+const SPEEDOMETER_MAX_KMH = 220;
+
+function setupSpeedometer() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		/* bottom:60px (not 16) clears the classic track mode's own
+		   "إنشاء مضمار جديد" corner link, which sits right at bottom:12px
+		   in the same corner — free-roam/الطريق hide that link entirely
+		   but this still reads fine sitting a bit higher there too. */
+		#hw-speedo { position: fixed; right: 16px; bottom: 60px; z-index: 25; width: 112px; height: 112px; }
+		#hw-speedo svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+		#hw-speedo .hw-speedo-track { fill: none; stroke: rgba(255,255,255,0.14); stroke-width: 9; }
+		#hw-speedo .hw-speedo-fill { fill: none; stroke: #5B8CFF; stroke-width: 9; stroke-linecap: round; transition: stroke 0.15s; }
+		#hw-speedo .hw-speedo-center {
+			position: absolute; inset: 0; display: flex; flex-direction: column;
+			align-items: center; justify-content: center; pointer-events: none;
+		}
+		#hw-speedo .hw-speedo-value { font: 700 28px system-ui, sans-serif; color: #fff; line-height: 1; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+		#hw-speedo .hw-speedo-unit { font: 600 11px system-ui, sans-serif; color: rgba(255,255,255,0.65); margin-top: 2px; }
+	`;
+	document.head.appendChild( style );
+
+	const R = 52, CIRC = 2 * Math.PI * R;
+	const wrap = document.createElement( 'div' );
+	wrap.id = 'hw-speedo';
+	wrap.innerHTML = `
+		<svg viewBox="0 0 120 120">
+			<circle class="hw-speedo-track" cx="60" cy="60" r="${ R }" />
+			<circle class="hw-speedo-fill" cx="60" cy="60" r="${ R }" stroke-dasharray="${ CIRC }" stroke-dashoffset="${ CIRC }" />
+		</svg>
+		<div class="hw-speedo-center">
+			<div class="hw-speedo-value">0</div>
+			<div class="hw-speedo-unit">كم/س</div>
+		</div>
+	`;
+	document.body.appendChild( wrap );
+
+	const fillEl = wrap.querySelector( '.hw-speedo-fill' );
+	const valueEl = wrap.querySelector( '.hw-speedo-value' );
+
+	return {
+
+		// speedFraction: 0..1 (or a little past 1 briefly on a launch/
+		// downhill boost — clamped so the ring never overshoots a full
+		// circle).
+		update( speedFraction ) {
+
+			const clamped = Math.max( 0, Math.min( 1, speedFraction ) );
+			fillEl.style.strokeDashoffset = String( CIRC * ( 1 - clamped ) );
+			fillEl.style.stroke = clamped > 0.85 ? '#e0483c' : clamped > 0.55 ? '#e0a62a' : '#5B8CFF';
+			valueEl.textContent = String( Math.round( clamped * SPEEDOMETER_MAX_KMH ) );
+
+		},
+
+	};
+
+}
+
 // ─── Fullscreen toggle (web mode only — an AR session already takes
 // over the whole display, see the comment at the AR entry button). ────
 // requestFullscreenSafe() already fires once automatically when picking
@@ -4373,7 +4438,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// from behind instead of from the isometric diagonal): the camera's
 	// own facing never changes, only its position follows.
 	const cam = freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
-		: highway ? new Camera( { offset: new THREE.Vector3( 0, 4.6, -12 ), far: 200, near: 1 } )
+		: highway ? new Camera( { offset: new THREE.Vector3( 0, 2, -10 ), far: 200, near: 1, fov: 55 } )
 		: new Camera();
 	scene.add( cam.debug );
 
@@ -4394,6 +4459,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
 	setupMusicToggle();
+	const speedometer = setupSpeedometer();
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -4518,6 +4584,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			}
 
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
+			speedometer.update( Math.abs( vehicle.linearSpeed / MAX_SPEED ) );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {
 

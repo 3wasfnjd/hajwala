@@ -31,9 +31,13 @@ export class Camera {
 	// never rotates with the car, only its POSITION follows (per
 	// request: "لا تتحرك مع السيارة" — don't tie it to the car's own
 	// movement/rotation).
-	constructor( { distanceScale = 1, far = 60, near = 0.1, offset = null } = {} ) {
+	// fov: overrides the default 40° field of view — a low, flat chase
+	// view (small offset.y relative to distance) needs a wider FOV to
+	// still show the full road width up close, matching a typical arcade
+	// racer's expansive low camera instead of a narrow telephoto look.
+	constructor( { distanceScale = 1, far = 60, near = 0.1, offset = null, fov = 40 } = {} ) {
 
-		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, near, far );
+		this.camera = new THREE.PerspectiveCamera( fov, window.innerWidth / window.innerHeight, near, far );
 
 		// Matches Godot View: 45° azimuth, 35° elevation, distance 16 (×distanceScale)
 		this.offset = offset ? offset.clone() : new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );
