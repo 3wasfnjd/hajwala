@@ -4390,7 +4390,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// now further back than the classic track mode's own default of 1.
 	// far/near stay wide enough for the open arena to not clip either way.
 	// WEB/AR keep the original isometric offset.
-	const cam = freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } ) : new Camera();
+	// الطريق (highway) uses a rear third-person chase cam that follows
+	// the car's own heading (road stretches away toward the top of the
+	// screen as you drive) instead of the fixed-diagonal isometric offset
+	// every other mode uses — a long straight road reads far better
+	// followed head-on. chaseYawSmoothing (Camera's own default) keeps it
+	// from swinging with every steering wobble, per request.
+	const cam = freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
+		: highway ? new Camera( { chaseHeading: true, chaseDistance: 8, chaseHeight: 2.6, chaseLookAhead: 10, far: 200, near: 1 } )
+		: new Camera();
 	scene.add( cam.debug );
 
 	const controls = new Controls();
@@ -4573,7 +4581,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead );
+			cam.update( dt, vehicle.spherePos, _camLead, vehicle.container.quaternion );
 
 			renderer.render( scene, cam.camera );
 
