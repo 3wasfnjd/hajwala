@@ -4066,6 +4066,18 @@ function updateHighwayRecycling( highwayState, playerZ ) {
 
 function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, highway, vehicleKey, flagImage } ) {
 
+	// "إنشاء مضمار جديد" only makes sense for the classic GridMap track —
+	// free-roam and الطريق have no track to edit, so the link is just
+	// noise there. Every exit path (home button, restart, results-menu)
+	// does a full page navigation, which reloads index.html and brings
+	// the link straight back — no need to ever re-show it from here.
+	if ( freeRoam || highway ) {
+
+		const editorLink = document.getElementById( 'editor-link' );
+		if ( editorLink ) editorLink.style.display = 'none';
+
+	}
+
 	const world = createPhysicsWorld();
 	let sphereBody, vehicleSpawn, lapTimer = null;
 	let trackPath = null, aiDrivers = [], aiExtras = [];
@@ -4361,7 +4373,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// from behind instead of from the isometric diagonal): the camera's
 	// own facing never changes, only its position follows.
 	const cam = freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
-		: highway ? new Camera( { offset: new THREE.Vector3( 0, 3.6, -9 ), far: 200, near: 1 } )
+		: highway ? new Camera( { offset: new THREE.Vector3( 0, 4.6, -12 ), far: 200, near: 1 } )
 		: new Camera();
 	scene.add( cam.debug );
 
