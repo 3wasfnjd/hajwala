@@ -349,6 +349,7 @@ const models = {};
 // asphalt material directly as real THREE.Textures, tiling independently
 // of that canvas since they carry no per-lane content of their own.
 let highwayAsphaltImg = null;
+let highwayAsphaltColorMap = null; // same basecolor.jpg as highwayAsphaltImg, loaded as a plain repeating THREE.Texture for surfaces that don't need this game's own drawn lane lines (the median — see buildHighwayWorld)
 let highwayAsphaltNormalMap = null;
 let highwayAsphaltRoughnessMap = null;
 
@@ -497,6 +498,9 @@ async function loadModels() {
 	const asphaltTextureLoader = new THREE.TextureLoader();
 	highwayAsphaltNormalMap = asphaltTextureLoader.load( 'images/highway-asphalt-normal.jpg' );
 	highwayAsphaltRoughnessMap = asphaltTextureLoader.load( 'images/highway-asphalt-roughness.jpg' );
+
+	highwayAsphaltColorMap = asphaltTextureLoader.load( 'images/highway-asphalt.jpg' );
+	highwayAsphaltColorMap.colorSpace = THREE.SRGBColorSpace;
 
 	highwaySkyTexture = asphaltTextureLoader.load( 'images/highway-sky.jpg' );
 	highwaySkyTexture.colorSpace = THREE.SRGBColorSpace;
@@ -3860,7 +3864,14 @@ const HW_LEADING_SEGMENTS = 5;
 const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
 
 const HW_BARRIER_HEIGHT = 0.4; // below the truck's own final body height (0.575) — see createHighwaySegmentProps' own comment
-const HW_MEDIAN_TOP_Y = 0.2; // median BoxGeometry: position.y=0.1, height 0.2 — top surface
+// Median surface height — flush with the road (matches the lane
+// asphalt's own y=0.005) rather than a raised curb: the median used to
+// be a separate raised BoxGeometry, removed per feedback ("قد تحذف
+// الرصيف معاد نحتاجه بعد الخرسانه" — the curb's not needed anymore now
+// that the concrete barrier is the actual divider) once it was already
+// real paved asphalt like the rest of the road, not a distinct surface
+// needing its own curb-height blend.
+const HW_MEDIAN_TOP_Y = 0.005;
 const HW_UTURN_EVERY = 5; // every Nth segment (by global index) opens a U-turn gap in the median barrier
 const HW_UTURN_GAP_LENGTH = 16; // kept short/modest per feedback ("صغره لا تخليه كبير") — not the whole HW_SEGMENT_LENGTH
 
@@ -4091,7 +4102,6 @@ function createHighwaySegmentProps( models, world ) {
 	// regardless of exactly where they'd otherwise sit relative to the
 	// gap itself.
 	const hideOnGap = [];
-	const showOnGap = [];
 
 	const addGapPoleCollider = ( visual, x, z, radius ) => {
 
@@ -4211,26 +4221,14 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// U-turn connector patch — real asphalt-toned pavement across the
-	// gap so it reads as a driveable opening rather than just leftover
-	// median surface, shown only on the same segments as the barrier
-	// gap above. A flat color (matching the darkened asphalt tone from
-	// createHighwayLaneTexture) rather than a textured material: this is
-	// a small patch crossed briefly at an angle, not a straightaway
-	// that's ever scrutinized up close. Widened slightly past the
-	// median's own edges so it overlaps into each carriageway's own
-	// asphalt with no seam/gap at the join.
-	const uturnPatch = new THREE.Mesh(
-		new THREE.PlaneGeometry( HW_MEDIAN_HALF * 2 + 1.6, HW_UTURN_GAP_LENGTH ),
-		new THREE.MeshStandardMaterial( { color: 0x252320, roughness: 0.95 } )
-	);
-	uturnPatch.rotation.x = - Math.PI / 2;
-	uturnPatch.position.set( 0, HW_MEDIAN_TOP_Y + 0.001, ( gapStart + gapEnd ) / 2 );
-	uturnPatch.visible = false;
-	group.add( uturnPatch );
-	showOnGap.push( uturnPatch );
+	// No separate U-turn connector patch needed anymore — now that the
+	// median itself is real paved asphalt at road height (see
+	// HW_MEDIAN_TOP_Y's own comment) rather than a raised curb, the gap
+	// area already reads as ordinary driveable pavement on its own; the
+	// barrier's own missing middle piece (hideOnGap above) is the only
+	// thing that needs to change for a U-turn segment.
 
-	return { group, bodies, hideOnGap, showOnGap };
+	return { group, bodies, hideOnGap };
 
 }
 
@@ -4244,12 +4242,36 @@ function buildHighwayWorld( scene, models, world ) {
 	scene.background = highwaySkyTexture || new THREE.Color( 0x8fc0dd );
 	scene.fog = new THREE.Fog( 0x84949a, 60, 260 );
 
-	// Median strip — flat raised concrete band down the middle.
+	// Median strip — flush with the road, same real asphalt PBR set as
+	// the lanes (own cloned textures so its own, narrower width gets a
+	// correctly-scaled physical tile instead of inheriting the lane
+	// planes' repeat count). No longer a raised curb — see
+	// HW_MEDIAN_TOP_Y's own comment on why that was dropped — so the
+	// concrete barrier is now the median's only actual divider, visual
+	// and physical alike.
+	const medianColorMap = highwayAsphaltColorMap ? highwayAsphaltColorMap.clone() : null;
+	const medianNormalMap = highwayAsphaltNormalMap ? highwayAsphaltNormalMap.clone() : null;
+	const medianRoughnessMap = highwayAsphaltRoughnessMap ? highwayAsphaltRoughnessMap.clone() : null;
+	for ( const map of [ medianColorMap, medianNormalMap, medianRoughnessMap ] ) {
+
+		if ( ! map ) continue;
+		map.wrapS = map.wrapT = THREE.RepeatWrapping;
+		map.repeat.set( HW_MEDIAN_HALF * 2 / 2, HW_GROUND_HALF_Z * 2 / 2 ); // 2×2m physical tile, same scan as the road
+
+	}
+
 	const median = new THREE.Mesh(
-		new THREE.BoxGeometry( HW_MEDIAN_HALF * 2, 0.2, HW_GROUND_HALF_Z * 2 ),
-		new THREE.MeshStandardMaterial( { color: 0xb7a98c, roughness: 0.95 } )
+		new THREE.PlaneGeometry( HW_MEDIAN_HALF * 2, HW_GROUND_HALF_Z * 2 ),
+		new THREE.MeshStandardMaterial( {
+			map: medianColorMap,
+			normalMap: medianNormalMap,
+			roughnessMap: medianRoughnessMap,
+			roughness: medianRoughnessMap ? 1 : 0.95,
+			color: medianColorMap ? 0xffffff : 0x252320, // fallback tint if the real texture hasn't loaded yet
+		} )
 	);
-	median.position.set( 0, 0.1, 0 );
+	median.rotation.x = - Math.PI / 2;
+	median.position.set( 0, HW_MEDIAN_TOP_Y, 0 );
 	scene.add( median );
 
 	// normalMap/roughnessMap carry no per-lane content of their own (unlike
@@ -4358,10 +4380,10 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const { group, bodies, hideOnGap, showOnGap } = createHighwaySegmentProps( models, world );
+		const { group, bodies, hideOnGap } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		const slot = { group, index, bodies, hideOnGap, showOnGap };
+		const slot = { group, index, bodies, hideOnGap };
 		repositionHighwaySegmentBodies( world, slot );
 		updateHighwayGapState( world, slot );
 		segments.push( slot );
@@ -4398,8 +4420,6 @@ function repositionHighwaySegmentBodies( world, slot ) {
 // dropped far below the world (cheaper/simpler than a real enable/
 // disable — crashcat's rigidBody has no such toggle here, and this is
 // the same rigidBody.setPosition() already used for ordinary recycling).
-// slot.showOnGap is the reverse — currently just the U-turn asphalt
-// connector patch, shown only on gap segments.
 function updateHighwayGapState( world, slot ) {
 
 	const isGap = ( ( slot.index % HW_UTURN_EVERY ) + HW_UTURN_EVERY ) % HW_UTURN_EVERY === 0;
@@ -4408,11 +4428,6 @@ function updateHighwayGapState( world, slot ) {
 
 		b.visual.visible = ! isGap;
 		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
-
-	}
-	for ( const visual of slot.showOnGap ) {
-
-		visual.visible = isGap;
 
 	}
 
