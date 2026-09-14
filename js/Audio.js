@@ -442,7 +442,12 @@ export class GameAudio {
 
 				skidVol = remap(
 					THREE.MathUtils.clamp( driftIntensity, 0.5, 2.0 ),
-					0.5, 2.0, 0.15, 0.45 // lowered per feedback — skid was drowning out the radio
+					// Top end lowered again per feedback — a hard drift's
+					// skid was "مزعج" (annoying/harsh) specifically at
+					// high intensity; light/normal drifting near the 0.5
+					// threshold was fine as-is, so only the ceiling moved
+					// (0.45 → 0.28), not the floor.
+					0.5, 2.0, 0.15, 0.28
 				);
 
 			}
@@ -454,11 +459,14 @@ export class GameAudio {
 			this.skidSound.setPlaybackRate( THREE.MathUtils.lerp( curPitch, skidPitch, 0.1 ) );
 
 			// Tone opens as the drift digs in: light slides stay dull,
-			// hard drifts scream
+			// hard drifts scream — ceiling pulled down (10000Hz → 7000Hz)
+			// alongside the volume cut above, same "annoying specifically
+			// at hard drift" complaint; light-slide tone (near the 0.5
+			// threshold) is unchanged.
 			const intensity01 = THREE.MathUtils.clamp(
 				remap( driftIntensity, 0.5, 1.6, 0, 1 ), 0, 1
 			);
-			this.skidTone.frequency.setTargetAtTime( 2500 + intensity01 * 7500, now, 0.1 );
+			this.skidTone.frequency.setTargetAtTime( 2500 + intensity01 * 4500, now, 0.1 );
 
 		}
 
