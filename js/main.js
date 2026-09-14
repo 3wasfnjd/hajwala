@@ -2240,12 +2240,7 @@ function createTextTexture( text ) {
 // again per follow-up feedback — same for all 3 vehicles below, each
 // matched to its own headlightLens.y.
 const TRUCK_LAYOUT = {
-	// y/z nudged up+forward per feedback (screenshot with the light's
-	// current spot vs the model's own headlight bump marked) — the
-	// visible lens glow was sitting low/back of the actual headlight,
-	// closer to the small amber corner-marker lamp below it than to the
-	// headlight itself.
-	headlightLens: [ 0.3975, 0.8, 1.52 ],
+	headlightLens: [ 0.3975, 0.719, 1.42 ],
 	taillight: [ 0.3975, 0.879, -1.33 ],
 	reverseLight: [ 0.24975, 0.659, -1.3398 ],
 	flag: [ -0.6, 0.593, -1.358 ],
@@ -2783,15 +2778,9 @@ function addVehicleLights( vehicle, realHazards = false ) {
 	// once.
 	//
 	// The player's own car (realHazards=true): a real THREE.PointLight
-	// per corner, same construction/settings as the taillights above —
-	// just one car, so the earlier hang-risk reasoning doesn't apply.
-	// PLUS the same visible lens glow (core+halo) the AI-car path below
-	// uses, which the light-only version didn't have — reported as the
-	// rear hazards not visibly "appearing" at all: an invisible point
-	// light's bounce is subtle enough on the truck's own light-colored
-	// paint to read as not there, unlike taillights/headlights which
-	// (or, for hazards' AI-car path below) always pair a real or implied
-	// light with an actual glowing dot marking exactly where it is.
+	// per corner instead, same construction/settings as the taillights
+	// above — just one car, so the earlier hang-risk reasoning doesn't
+	// apply, and a real light actually looks lit up at the bump.
 	const hazards = [];
 	for ( const [ x, y, z ] of layout.hazards ) {
 
@@ -2805,31 +2794,7 @@ function addVehicleLights( vehicle, realHazards = false ) {
 			light.position.copy( basePosition );
 			light.visible = false;
 			anchorNode.add( light );
-
-			const group = new THREE.Group();
-			group.position.copy( basePosition );
-			group.rotation.y = z > 0 ? 0 : Math.PI; // front bumps face forward, rear bumps face backward
-			group.visible = false;
-			anchorNode.add( group );
-
-			const core = new THREE.Mesh(
-				new THREE.CircleGeometry( 0.05, 12 ),
-				new THREE.MeshBasicMaterial( { color: 0xff8c1a, toneMapped: false } )
-			);
-			group.add( core );
-
-			const halo = new THREE.Mesh(
-				new THREE.CircleGeometry( 0.14, 16 ),
-				new THREE.MeshBasicMaterial( {
-					map: createGlowTexture( '255, 140, 26' ), color: 0xff8c1a,
-					transparent: true, toneMapped: false, depthWrite: false,
-					blending: THREE.AdditiveBlending,
-				} )
-			);
-			halo.position.z = -0.002;
-			group.add( halo );
-
-			hazards.push( { light, group, basePosition, baseDistance, baseIntensity } );
+			hazards.push( { light, basePosition, baseDistance, baseIntensity } );
 			continue;
 
 		}
@@ -2886,15 +2851,10 @@ function toggleHazards( vehicleLights ) {
 	vehicleLights.hazardsOn = ! vehicleLights.hazardsOn;
 	if ( ! vehicleLights.hazardsOn ) {
 
-		// h.light for the player's real PointLight, h.group for the
-		// visible lens glow — the player's own hazards carry BOTH (see
-		// addVehicleLights' realHazards param), AI cars only h.group.
-		vehicleLights.hazards.forEach( ( h ) => {
-
-			if ( h.light ) h.light.visible = false;
-			if ( h.group ) h.group.visible = false;
-
-		} );
+		// h.light for the player's real-PointLight hazards (see
+		// addVehicleLights' realHazards param), h.group for AI cars'
+		// unlit lens-glow version.
+		vehicleLights.hazards.forEach( ( h ) => { if ( h.light ) h.light.visible = false; else h.group.visible = false; } );
 
 	}
 
@@ -3058,12 +3018,7 @@ function updateVehicleLights( vehicleLights, dt, scale, isReversing = false, haz
 
 		vehicleLights._blinkTimer = ( vehicleLights._blinkTimer || 0 ) + dt;
 		const on = Math.floor( vehicleLights._blinkTimer / 0.4 ) % 2 === 0;
-		vehicleLights.hazards.forEach( ( h ) => {
-
-			if ( h.light ) h.light.visible = on;
-			if ( h.group ) h.group.visible = on;
-
-		} );
+		vehicleLights.hazards.forEach( ( h ) => { if ( h.light ) h.light.visible = on; else h.group.visible = on; } );
 
 	}
 
