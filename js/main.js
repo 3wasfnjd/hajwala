@@ -218,7 +218,7 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'highway-tree', 'highway-streetlight', 'highway-ground-patch', 'highway-barrier', 'highway-barrier-corner',
+	'highway-tree', 'highway-streetlight', 'highway-ground-patch', 'highway-barrier',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -4102,7 +4102,6 @@ function createHighwaySegmentProps( models, world ) {
 	// regardless of exactly where they'd otherwise sit relative to the
 	// gap itself.
 	const hideOnGap = [];
-	const showOnGap = []; // decorative-only visuals shown just on U-turn segments — currently the corner curb pieces at the gap's 4 corners
 
 	const addGapPoleCollider = ( visual, x, z, radius ) => {
 
@@ -4222,36 +4221,12 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// Corner curb pieces (user supplied — a rounded/curved concrete
-	// corner) dressing the 4 corners of the U-turn opening, shown only
-	// on gap segments alongside the barrier's own missing middle piece.
-	// Decorative only, like the ground-clutter patches — no collider.
-	// Rotated in a 90°-per-corner sweep going around the opening's
-	// rectangle (rather than a hand-picked angle per corner): whichever
-	// way the model's own curve actually faces at rotation 0, this keeps
-	// all 4 corners consistent with each other, so if the whole set
-	// needs a quarter-turn correction after an in-game look, it's one
-	// shared offset to adjust, not four independently-guessed angles.
-	const CORNER_SIZE = 1.2;
-	const cornerX = HW_MEDIAN_HALF - 0.2; // same inset as the barrier itself
-	const cornerSpecs = [
-		{ side: 1, z: gapEnd, rot: 0 },
-		{ side: 1, z: gapStart, rot: - Math.PI / 2 },
-		{ side: -1, z: gapStart, rot: Math.PI },
-		{ side: -1, z: gapEnd, rot: Math.PI / 2 },
-	];
-	for ( const spec of cornerSpecs ) {
+	// No corner-curb dressing at the U-turn opening — tried once (a
+	// rounded concrete corner piece), reported not to look good, removed.
+	// The barrier's own missing middle piece (hideOnGap above) is the
+	// only thing that changes for a U-turn segment.
 
-		const corner = wrapHighwayGroundPatch( models[ 'highway-barrier-corner' ], CORNER_SIZE );
-		corner.position.set( spec.side * cornerX, HW_MEDIAN_TOP_Y, spec.z );
-		corner.rotation.y = spec.rot;
-		corner.visible = false;
-		group.add( corner );
-		showOnGap.push( corner );
-
-	}
-
-	return { group, bodies, hideOnGap, showOnGap };
+	return { group, bodies, hideOnGap };
 
 }
 
@@ -4403,10 +4378,10 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const { group, bodies, hideOnGap, showOnGap } = createHighwaySegmentProps( models, world );
+		const { group, bodies, hideOnGap } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		const slot = { group, index, bodies, hideOnGap, showOnGap };
+		const slot = { group, index, bodies, hideOnGap };
 		repositionHighwaySegmentBodies( world, slot );
 		updateHighwayGapState( world, slot );
 		segments.push( slot );
@@ -4443,8 +4418,6 @@ function repositionHighwaySegmentBodies( world, slot ) {
 // dropped far below the world (cheaper/simpler than a real enable/
 // disable — crashcat's rigidBody has no such toggle here, and this is
 // the same rigidBody.setPosition() already used for ordinary recycling).
-// slot.showOnGap is the reverse — the decorative corner curb pieces,
-// shown only on gap segments; no collider to move, purely visual.
 function updateHighwayGapState( world, slot ) {
 
 	const isGap = ( ( slot.index % HW_UTURN_EVERY ) + HW_UTURN_EVERY ) % HW_UTURN_EVERY === 0;
@@ -4453,11 +4426,6 @@ function updateHighwayGapState( world, slot ) {
 
 		b.visual.visible = ! isGap;
 		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
-
-	}
-	for ( const visual of slot.showOnGap ) {
-
-		visual.visible = isGap;
 
 	}
 
