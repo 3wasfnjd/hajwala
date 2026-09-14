@@ -105,7 +105,16 @@ export class Controls {
 
 	}
 
-	update() {
+	// worldAngle: the world-space azimuth that the touch joystick's "up"
+	// should map to — see the joystick math below for how it's derived.
+	// Defaults to this game's own fixed isometric camera's azimuth
+	// (Math.PI/4, reproducing the original hardcoded SQRT1_2 constants
+	// exactly), so every mode using the standard fixed-angle camera is
+	// completely unaffected. الطريق (highway) mode's rear-following
+	// camera instead passes its own current heading each frame, since a
+	// fixed angle would only be correct for whichever way the car
+	// happened to be pointed at spawn.
+	update( worldAngle = Math.PI / 4 ) {
 
 		let x = 0, z = 0;
 
@@ -136,8 +145,10 @@ export class Controls {
 
 		}
 
-		// Touch — joystick mapped to world space (camera is 45° azimuth)
-
+		// Touch — joystick mapped to world space, rotated by worldAngle
+		// (defaults to reproducing the original fixed-45°-camera mapping
+		// exactly: cos/sin of PI/4 are both SQRT1_2, matching the old
+		// hardcoded constants bit for bit).
 		if ( this.touchActive ) {
 
 			const jx = this.touchDirX;
@@ -146,8 +157,9 @@ export class Controls {
 
 			if ( mag > 0.15 ) {
 
-				x = ( jx + jy ) * Math.SQRT1_2 / mag;
-				z = ( - jx + jy ) * Math.SQRT1_2 / mag;
+				const cosA = Math.cos( worldAngle ), sinA = Math.sin( worldAngle );
+				x = ( jx * cosA + jy * sinA ) / mag;
+				z = ( - jx * sinA + jy * cosA ) / mag;
 
 			}
 

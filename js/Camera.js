@@ -124,6 +124,13 @@ export class Camera {
 			if ( this._chaseYaw === null ) this._chaseYaw = rawYaw;
 			const yawAlpha = 1 - Math.exp( - dt * this.chaseYawSmoothing );
 			this._chaseYaw = lerpAngle( this._chaseYaw, rawYaw, yawAlpha );
+			// Public mirror of the smoothed yaw — main.js reads this to
+			// keep the touch joystick's "up" direction matching whatever
+			// this camera currently shows as "ahead" (see Controls.js's
+			// own comment on its world-space joystick mapping, tuned for
+			// a FIXED camera azimuth elsewhere — a rotating chase cam
+			// needs that reference angle updated every frame instead).
+			this.chaseYaw = this._chaseYaw;
 			_forward.set( Math.sin( this._chaseYaw ), 0, Math.cos( this._chaseYaw ) );
 
 			_desired.copy( target ).addScaledVector( _forward, - this.chaseDistance );

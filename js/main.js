@@ -4494,7 +4494,15 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			}
 
 			const racing = raceState.phase === 'racing';
-			const rawInput = controls.update();
+			// الطريق's rear-following camera rotates with the car, so the
+			// touch joystick's "up" needs to track its CURRENT heading
+			// instead of the fixed 45° every other mode's camera sits at
+			// — see Controls.update()'s own comment. chaseYaw is only
+			// set once cam.update() has run at least once (below, after
+			// this); undefined for that first frame falls back to
+			// Controls' own default, same as every non-highway mode.
+			const controlsAngle = highway ? ( ( cam.chaseYaw ?? 0 ) + Math.PI ) : undefined;
+			const rawInput = controls.update( controlsAngle );
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
