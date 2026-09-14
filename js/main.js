@@ -3201,6 +3201,11 @@ function create3DRaceCountdown( parent, localPosition, scale = 6 ) {
 // top speed instead — purely cosmetic, doesn't touch actual physics.
 const SPEEDOMETER_MAX_KMH = 220;
 
+// Redesigned per a reference screenshot of a polished analog gauge (full
+// numbered dial, neon glow) — bigger, with a real 300°-sweep tick/number
+// scale (a 60° gap at the bottom, like a real speedometer's needle-pivot
+// zone) instead of the old plain full-circle ring, same purple/blue glow
+// already used everywhere else in this game's UI (menus, buttons).
 function setupSpeedometer() {
 
 	const style = document.createElement( 'style' );
@@ -3209,26 +3214,76 @@ function setupSpeedometer() {
 		   "إنشاء مضمار جديد" corner link, which sits right at bottom:12px
 		   in the same corner — free-roam/الطريق hide that link entirely
 		   but this still reads fine sitting a bit higher there too. */
-		#hw-speedo { position: fixed; right: 16px; bottom: 60px; z-index: 25; width: 112px; height: 112px; }
-		#hw-speedo svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-		#hw-speedo .hw-speedo-track { fill: none; stroke: rgba(255,255,255,0.14); stroke-width: 9; }
-		#hw-speedo .hw-speedo-fill { fill: none; stroke: #5B8CFF; stroke-width: 9; stroke-linecap: round; transition: stroke 0.15s; }
+		#hw-speedo {
+			position: fixed; right: 16px; bottom: 60px; z-index: 25; width: 168px; height: 168px;
+			filter: drop-shadow(0 6px 20px rgba(0,0,0,0.45));
+		}
+		#hw-speedo svg { width: 100%; height: 100%; overflow: visible; }
+		#hw-speedo .hw-speedo-track { fill: none; stroke: rgba(255,255,255,0.16); stroke-width: 11; }
+		#hw-speedo .hw-speedo-fill {
+			fill: none; stroke: #5B8CFF; stroke-width: 11; stroke-linecap: round;
+			transition: stroke 0.15s; filter: drop-shadow(0 0 6px currentColor);
+		}
+		#hw-speedo .hw-speedo-tick { stroke: rgba(255,255,255,0.55); stroke-width: 2; }
+		#hw-speedo .hw-speedo-label {
+			fill: rgba(255,255,255,0.6); font: 600 10px system-ui, sans-serif;
+			text-anchor: middle; dominant-baseline: middle;
+		}
 		#hw-speedo .hw-speedo-center {
 			position: absolute; inset: 0; display: flex; flex-direction: column;
 			align-items: center; justify-content: center; pointer-events: none;
+			padding-bottom: 14px; /* nudge up off-center, clear of the bottom tick gap */
 		}
-		#hw-speedo .hw-speedo-value { font: 700 28px system-ui, sans-serif; color: #fff; line-height: 1; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
-		#hw-speedo .hw-speedo-unit { font: 600 11px system-ui, sans-serif; color: rgba(255,255,255,0.65); margin-top: 2px; }
+		#hw-speedo .hw-speedo-value { font: 800 34px system-ui, sans-serif; color: #fff; line-height: 1; text-shadow: 0 1px 6px rgba(91,140,255,0.6); }
+		#hw-speedo .hw-speedo-unit { font: 600 12px system-ui, sans-serif; color: rgba(255,255,255,0.65); margin-top: 3px; }
 	`;
 	document.head.appendChild( style );
 
-	const R = 52, CIRC = 2 * Math.PI * R;
+	// Polar helper: angleDeg=0 is straight up, increasing CLOCKWISE — the
+	// dial sweeps from -150° (bottom-left, value 0) to +150° (bottom-
+	// right, SPEEDOMETER_TICK_MAX), leaving a 60° gap at the bottom.
+	const CX = 84, CY = 84, R = 70;
+	const toXY = ( angleDeg, radius ) => {
+
+		const rad = angleDeg * Math.PI / 180;
+		return [ CX + radius * Math.sin( rad ), CY - radius * Math.cos( rad ) ];
+
+	};
+
+	const SWEEP_START = -150, SWEEP_END = 150;
+	const CIRC = 2 * Math.PI * R;
+	const ARC_LEN = CIRC * ( ( SWEEP_END - SWEEP_START ) / 360 );
+	// Base rotation puts the circle's own natural start point (normally
+	// 3-o'clock) at SWEEP_START in the toXY() convention above — -90°
+	// gets it to 12-o'clock (angleDeg=0), then the remaining offset walks
+	// it the rest of the way to SWEEP_START.
+	const BASE_ROTATE = -90 + SWEEP_START;
+
+	const SPEEDOMETER_TICK_MAX = 200; // last numbered mark — SPEEDOMETER_MAX_KMH (220) itself sits a little past it, same as a real gauge's headroom past its highest label
+	const TICK_VALUES = [ 0, 40, 80, 120, 160, 200 ];
+	let ticksSvg = '';
+	for ( const v of TICK_VALUES ) {
+
+		const angle = SWEEP_START + ( v / SPEEDOMETER_TICK_MAX ) * ( SWEEP_END - SWEEP_START );
+		const [ x1, y1 ] = toXY( angle, R - 9 );
+		const [ x2, y2 ] = toXY( angle, R + 2 );
+		const [ lx, ly ] = toXY( angle, R + 16 ); // outside the rim, clear of the big digital readout at center
+		ticksSvg += `<line class="hw-speedo-tick" x1="${ x1.toFixed( 1 ) }" y1="${ y1.toFixed( 1 ) }" x2="${ x2.toFixed( 1 ) }" y2="${ y2.toFixed( 1 ) }" />`;
+		ticksSvg += `<text class="hw-speedo-label" x="${ lx.toFixed( 1 ) }" y="${ ly.toFixed( 1 ) }">${ v }</text>`;
+
+	}
+
 	const wrap = document.createElement( 'div' );
 	wrap.id = 'hw-speedo';
 	wrap.innerHTML = `
-		<svg viewBox="0 0 120 120">
-			<circle class="hw-speedo-track" cx="60" cy="60" r="${ R }" />
-			<circle class="hw-speedo-fill" cx="60" cy="60" r="${ R }" stroke-dasharray="${ CIRC }" stroke-dashoffset="${ CIRC }" />
+		<svg viewBox="0 0 168 168">
+			<g transform="rotate(${ BASE_ROTATE } ${ CX } ${ CY })">
+				<circle class="hw-speedo-track" cx="${ CX }" cy="${ CY }" r="${ R }"
+					stroke-dasharray="${ ARC_LEN } ${ CIRC }" />
+				<circle class="hw-speedo-fill" cx="${ CX }" cy="${ CY }" r="${ R }"
+					stroke-dasharray="0 ${ CIRC }" />
+			</g>
+			${ ticksSvg }
 		</svg>
 		<div class="hw-speedo-center">
 			<div class="hw-speedo-value">0</div>
@@ -3243,12 +3298,11 @@ function setupSpeedometer() {
 	return {
 
 		// speedFraction: 0..1 (or a little past 1 briefly on a launch/
-		// downhill boost — clamped so the ring never overshoots a full
-		// circle).
+		// downhill boost — clamped so the fill never overshoots the dial).
 		update( speedFraction ) {
 
 			const clamped = Math.max( 0, Math.min( 1, speedFraction ) );
-			fillEl.style.strokeDashoffset = String( CIRC * ( 1 - clamped ) );
+			fillEl.style.strokeDasharray = `${ ARC_LEN * clamped } ${ CIRC }`;
 			fillEl.style.stroke = clamped > 0.85 ? '#e0483c' : clamped > 0.55 ? '#e0a62a' : '#5B8CFF';
 			valueEl.textContent = String( Math.round( clamped * SPEEDOMETER_MAX_KMH ) );
 
@@ -3391,23 +3445,29 @@ function setupTouchUI( vehicleLights ) {
 
 	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
 
+	// Bigger pill-shaped buttons (icon + small label stacked), per a
+	// reference screenshot of a more polished HUD's side dock — same
+	// purple/blue press-state glow as before, just larger touch targets
+	// and each one now labeled instead of icon-only.
 	const style = document.createElement( 'style' );
 	style.textContent = `
 		#hw-touch-dock {
 			position: fixed; left: 14px; bottom: 14px; z-index: 30;
-			display: flex; flex-direction: column; gap: 8px;
-			padding: 10px 8px; border-radius: 20px;
+			display: flex; flex-direction: column; gap: 10px;
+			padding: 12px 8px; border-radius: 26px;
 			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
 			border: 1px solid rgba(139,95,191,0.35);
 			backdrop-filter: blur(6px);
 			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
 		}
 		#hw-touch-dock button {
-			width: 50px; height: 50px; border-radius: 50%; border: none; padding: 0;
-			background: rgba(255,255,255,0.06); color: #fff; font-size: 21px;
-			display: flex; align-items: center; justify-content: center;
+			width: 64px; height: 64px; border-radius: 18px; border: none; padding: 0;
+			background: rgba(255,255,255,0.06); color: #fff;
+			display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
 		}
+		#hw-touch-dock .hw-btn-icon { font-size: 22px; line-height: 1; }
+		#hw-touch-dock .hw-btn-label { font: 600 9.5px system-ui, sans-serif; color: rgba(255,255,255,0.85); line-height: 1; }
 		#hw-touch-dock button:active {
 			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
 			transform: scale(0.94);
@@ -3418,18 +3478,18 @@ function setupTouchUI( vehicleLights ) {
 	const wrap = document.createElement( 'div' );
 	wrap.id = 'hw-touch-dock';
 
-	function makeTapButton( label ) {
+	function makeTapButton( icon, label ) {
 
 		const btn = document.createElement( 'button' );
-		btn.textContent = label;
+		btn.innerHTML = `<span class="hw-btn-icon">${ icon }</span><span class="hw-btn-label">${ label }</span>`;
 		return btn;
 
 	}
 
-	const homeBtn = makeTapButton( '🏠' );
-	const headlightBtn = makeTapButton( '💡' );
-	const hazardBtn = makeTapButton( '⚠️' );
-	const highBeamBtn = makeTapButton( '🔆' );
+	const homeBtn = makeTapButton( '🏠', 'الرئيسية' );
+	const headlightBtn = makeTapButton( '💡', 'الأضواء' );
+	const hazardBtn = makeTapButton( '⚠️', 'الطوارئ' );
+	const highBeamBtn = makeTapButton( '🔆', 'عالية' );
 
 	// Back to the main menu — added alongside the rest of this dock's
 	// buttons per feedback that WEB mode (both track and free-roam, since
