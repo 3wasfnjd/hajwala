@@ -352,6 +352,19 @@ let highwayAsphaltImg = null;
 let highwayAsphaltNormalMap = null;
 let highwayAsphaltRoughnessMap = null;
 
+// Sky background for الطريق mode, built from the same reference screenshot
+// used for the HUD/camera reference earlier ("استخدم نفس الصورة" — use
+// that same picture, this time for the sky instead of the road). A raw
+// crop of it couldn't be used directly: the only HUD-free patch in that
+// screenshot is a thin ~72px sliver near the horizon, and naively
+// stretching that tall to fill a sky-sized image turned its faint cloud
+// texture into ugly vertical streaks. Instead: a plain vertical gradient
+// (colors sampled from that same patch) fills most of the frame, with the
+// actual photo band (mirror-tiled for width, only mildly rescaled
+// vertically to avoid the streaking) feathered in near the bottom, where
+// clouds are already most visible from a low chase camera anyway.
+let highwaySkyTexture = null;
+
 async function loadModels() {
 
 	const promises = modelNames.map( ( name ) =>
@@ -484,6 +497,9 @@ async function loadModels() {
 	const asphaltTextureLoader = new THREE.TextureLoader();
 	highwayAsphaltNormalMap = asphaltTextureLoader.load( 'images/highway-asphalt-normal.jpg' );
 	highwayAsphaltRoughnessMap = asphaltTextureLoader.load( 'images/highway-asphalt-roughness.jpg' );
+
+	highwaySkyTexture = asphaltTextureLoader.load( 'images/highway-sky.jpg' );
+	highwaySkyTexture.colorSpace = THREE.SRGBColorSpace;
 
 	await Promise.all( promises );
 
@@ -4038,10 +4054,13 @@ function createHighwaySegmentProps( models, world ) {
 
 function buildHighwayWorld( scene, models, world ) {
 
-	// A proper hazy desert-sky blue instead of the flat sand-brown it was
-	// before (reported: "السماء لونها بني" — the sky looked brown).
-	scene.background = new THREE.Color( 0x8fc0dd );
-	scene.fog = new THREE.Fog( 0xaed4e6, 60, 260 );
+	// Real photo-based hazy sky (see highwaySkyTexture's own comment) in
+	// place of the flat sand-brown it started as, then the flat blue it
+	// briefly became. Fog color is picked to match the photo band's own
+	// horizon tone so the distance fade blends into it instead of showing
+	// a seam where geometry fog meets the background image.
+	scene.background = highwaySkyTexture || new THREE.Color( 0x8fc0dd );
+	scene.fog = new THREE.Fog( 0x84949a, 60, 260 );
 
 	// Median strip — flat raised concrete band down the middle.
 	const median = new THREE.Mesh(
