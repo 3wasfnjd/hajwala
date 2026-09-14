@@ -3935,7 +3935,11 @@ const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
 const HW_VEHICLE_SCALE = 2;
 const HW_SPHERE_RADIUS = 0.5 * HW_VEHICLE_SCALE;
 
-const HW_BARRIER_HEIGHT = 0.4; // below the truck's own final body height (0.575) — see createHighwaySegmentProps' own comment
+// Raised back up per feedback ("كبر الحاجز الخرساني") — 0.4 read as too
+// small once the vehicle itself grew to HW_VEHICLE_SCALE's 2x (final
+// body height 1.15, not the un-scaled 0.575 this was first sized
+// against). Still comfortably below the car at this new height.
+const HW_BARRIER_HEIGHT = 0.7;
 // Median surface height — flush with the road (matches the lane
 // asphalt's own y=0.005) rather than a raised curb: the median used to
 // be a separate raised BoxGeometry, removed per feedback ("قد تحذف
@@ -4254,16 +4258,15 @@ function createHighwaySegmentProps( models, world ) {
 	// (every HW_UTURN_EVERY-th global index). On every other segment the
 	// gap piece stays visible/solid, so the three pieces read as one
 	// unbroken barrier with no visible seam.
-	// Sits on top of the median strip (top surface at y=0.2 — see the
-	// median BoxGeometry below: position.y=0.1, height 0.2) with a
-	// matching KINEMATIC box collider per piece so drifting into it
-	// actually stops the car instead of ghosting through — except the gap
-	// piece specifically, whose whole point is to NOT stop the car once
-	// it's a U-turn opening.
-	// Height kept below the vehicle's own final body height (0.575 —
-	// truck-body raw bbox Y max 1.15 × root_scale 0.5, see
-	// VEHICLE_SCALE_OVERRIDES' own comment on that 0.5) — reported too
-	// tall relative to the car at the previous 0.9.
+	// Sits flush on the median surface (HW_MEDIAN_TOP_Y — see its own
+	// comment) with a matching KINEMATIC box collider per piece so
+	// drifting into it actually stops the car instead of ghosting
+	// through — except the gap piece specifically, whose whole point is
+	// to NOT stop the car once it's a U-turn opening.
+	// HW_BARRIER_HEIGHT is kept comfortably below the vehicle's own
+	// final body height in highway mode (0.575 base × HW_VEHICLE_SCALE —
+	// see that constant's own comment) — see HW_BARRIER_HEIGHT's own
+	// comment for this value's history.
 	const gapStart = ( HW_SEGMENT_LENGTH - HW_UTURN_GAP_LENGTH ) / 2;
 	const gapEnd = gapStart + HW_UTURN_GAP_LENGTH;
 	// Real Jersey barrier segments taper toward their own ends rather
