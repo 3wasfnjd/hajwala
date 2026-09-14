@@ -336,6 +336,14 @@ function applyCamryBodyColor( scene, hexColor, boost ) {
 
 const models = {};
 
+// Real asphalt photo the user supplied for الطريق (highway) mode's road
+// surface — a small seamless-mirrored grain crop, drawn tiled into
+// createHighwayLaneTexture()'s canvas as a multiply-blended detail layer
+// over the existing flat base color, rather than replacing it outright:
+// the source is a screenshot's own baked lighting/color grade, which
+// wouldn't match this scene's lighting if used as a flat diffuse map.
+let highwayAsphaltImg = null;
+
 async function loadModels() {
 
 	const promises = modelNames.map( ( name ) =>
@@ -455,6 +463,15 @@ async function loadModels() {
 
 		} )
 	);
+
+	promises.push( new Promise( ( resolve ) => {
+
+		const img = new Image();
+		img.onload = () => { highwayAsphaltImg = img; resolve(); };
+		img.onerror = () => resolve(); // non-fatal — createHighwayLaneTexture() falls back to the flat/noise look
+		img.src = 'images/highway-asphalt.jpg';
+
+	} ) );
 
 	await Promise.all( promises );
 
@@ -3830,6 +3847,32 @@ function createHighwayLaneTexture( mirrored ) {
 
 	ctx.fillStyle = '#3a3733';
 	ctx.fillRect( 0, 0, size, size );
+
+	if ( highwayAsphaltImg ) {
+
+		// Tile the real asphalt photo densely (small on-screen tile size)
+		// so its grain reads as fine texture rather than one big repeated
+		// image — multiply-blended at reduced opacity onto the base color
+		// above, so the scene's own lighting/tone still drives the overall
+		// look and only the grain detail comes from the photo.
+		const tile = highwayAsphaltImg.width;
+		const cols = Math.ceil( size / tile ) + 1;
+		ctx.save();
+		ctx.globalAlpha = 0.45;
+		ctx.globalCompositeOperation = 'multiply';
+		for ( let ty = 0; ty < cols; ty ++ ) {
+
+			for ( let tx = 0; tx < cols; tx ++ ) {
+
+				ctx.drawImage( highwayAsphaltImg, tx * tile, ty * tile, tile, tile );
+
+			}
+
+		}
+		ctx.restore();
+
+	}
+
 	for ( let i = 0; i < 900; i ++ ) {
 
 		const x = Math.random() * size, y = Math.random() * size;
