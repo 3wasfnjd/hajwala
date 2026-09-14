@@ -218,7 +218,7 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'highway-tree', 'highway-streetlight',
+	'highway-tree', 'highway-streetlight', 'highway-ground-patch',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -3990,6 +3990,24 @@ function wrapHighwayPropAt( inst, box, scale ) {
 
 }
 
+// Ground-clutter patch (rock/rubble decal the user supplied for أطراف
+// الشوارع — the road shoulders) is a flat, roughly-horizontal mesh, not a
+// vertical prop like the tree/streetlight — scaling it to a target HEIGHT
+// (wrapHighwayProp's own scheme) would blow it up to absurd size since its
+// real height is only a few centimeters. Scaled to a target WIDTH (its
+// largest horizontal extent) instead, same centering/ground-alignment via
+// wrapHighwayPropAt.
+function wrapHighwayGroundPatch( source, targetWidth ) {
+
+	const inst = source.clone( true );
+	const box = new THREE.Box3().setFromObject( inst );
+	const size = new THREE.Vector3();
+	box.getSize( size );
+	const scale = targetWidth / Math.max( size.x, size.z, 0.0001 );
+	return wrapHighwayPropAt( inst, box, scale );
+
+}
+
 // Streetlight/tree pole height, shared between the visual wrapHighwayProp
 // scale and the physics collider height below, so a collision box can
 // never end up mismatched from what's actually drawn.
@@ -4045,6 +4063,30 @@ function createHighwaySegmentProps( models, world ) {
 		if ( side < 0 ) light.rotation.y = Math.PI;
 		group.add( light );
 		addPoleCollider( x, lightZ, 0.16 );
+
+	}
+
+	// Shoulder ground-clutter patches — purely decorative (no collider,
+	// same as the sand/dirt they sit on), placed just past the asphalt
+	// edge on both sides. Two per side at different sizes/rotations/Z
+	// offsets for a bit of visual variety without needing per-instance
+	// randomization — this whole slot still just repeats every
+	// HW_SEGMENT_LENGTH like the tree/streetlight above.
+	const patchX = HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.7;
+	const patchSpecs = [
+		{ z: HW_SEGMENT_LENGTH * 0.1, width: 2.4, rot: 0.3 },
+		{ z: HW_SEGMENT_LENGTH * 0.55, width: 1.6, rot: -0.8 },
+	];
+	for ( const side of [ -1, 1 ] ) {
+
+		for ( const spec of patchSpecs ) {
+
+			const patch = wrapHighwayGroundPatch( models[ 'highway-ground-patch' ], spec.width );
+			patch.position.set( side * patchX, 0, spec.z );
+			patch.rotation.y = spec.rot * side;
+			group.add( patch );
+
+		}
 
 	}
 
