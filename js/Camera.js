@@ -3,16 +3,6 @@ import * as THREE from 'three';
 const _desired = new THREE.Vector3();
 const _delta = new THREE.Vector3();
 const _lookPoint = new THREE.Vector3();
-const _forward = new THREE.Vector3();
-
-function lerpAngle( a, b, t ) {
-
-	let diff = b - a;
-	while ( diff > Math.PI ) diff -= Math.PI * 2;
-	while ( diff < -Math.PI ) diff += Math.PI * 2;
-	return a + diff * t;
-
-}
 
 export class Camera {
 
@@ -32,34 +22,21 @@ export class Camera {
 	// Y offsets from it are only ~0.001 apart). Every mode using the tight
 	// default distance is unaffected either way (far=60/near=0.1 was already
 	// a comfortable ratio for that range).
-	// chaseHeading: opts into a rear third-person chase cam that stays
-	// directly behind the car's own heading (rotates with it as it turns,
-	// road stretching away toward the top of the screen) instead of the
-	// fixed-world-angle isometric offset below — used by الطريق (highway)
-	// mode, where a long straight road reads much better followed
-	// head-on than viewed at a fixed diagonal angle. chaseDistance/
-	// chaseHeight/chaseLookAhead tune how close and how "behind" it
-	// sits. Every other mode never sets this, so its own update()
-	// branch below is untouched.
-	constructor( {
-		distanceScale = 1, far = 60, near = 0.1,
-		chaseHeading = false, chaseDistance = 6, chaseHeight = 1.8, chaseLookAhead = 4, chaseYawSmoothing = 3.5,
-	} = {} ) {
+	// offset: overrides the default Godot-style diagonal entirely, for a
+	// mode that wants a different fixed viewing angle — e.g. الطريق
+	// (highway) uses a straight-behind view (0, height, -distance)
+	// instead of the 45°/35° isometric one, since a long straight road
+	// reads much better followed head-on. Still the same fixed-angle
+	// deadzone/lead system below either way — this camera's own facing
+	// never rotates with the car, only its POSITION follows (per
+	// request: "لا تتحرك مع السيارة" — don't tie it to the car's own
+	// movement/rotation).
+	constructor( { distanceScale = 1, far = 60, near = 0.1, offset = null } = {} ) {
 
 		this.camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, near, far );
 
-		this.chaseHeading = chaseHeading;
-		this.chaseDistance = chaseDistance;
-		this.chaseHeight = chaseHeight;
-		this.chaseLookAhead = chaseLookAhead;
-		// How quickly the camera's OWN facing catches up to the car's heading
-		// — see update()'s chaseHeading branch for why this is smoothed
-		// separately from the raw heading instead of following it 1:1.
-		this.chaseYawSmoothing = chaseYawSmoothing;
-		this._chaseYaw = null;
-
 		// Matches Godot View: 45° azimuth, 35° elevation, distance 16 (×distanceScale)
-		this.offset = new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );
+		this.offset = offset ? offset.clone() : new THREE.Vector3( 9.27, 9.18, 9.27 ).multiplyScalar( distanceScale );
 
 		this.camera.position.copy( this.offset );
 		this.camera.lookAt( 0, 0, 0 );
@@ -103,56 +80,7 @@ export class Camera {
 
 	}
 
-	update( dt, target, velocity, heading ) {
-
-		if ( this.chaseHeading && heading ) {
-
-			_forward.set( 0, 0, 1 ).applyQuaternion( heading );
-			_forward.y = 0;
-			if ( _forward.lengthSq() > 1e-6 ) _forward.normalize(); else _forward.set( 0, 0, 1 );
-
-			// The car's raw heading whips around fast during a drift/tight
-			// steering input — following it directly would swing the
-			// camera itself around in lockstep, reading as "the camera
-			// moves with the steering" instead of a settled rear-view
-			// shot. Smoothing the YAW ANGLE here (not just the resulting
-			// position below) makes the camera's own facing lag behind
-			// and catch up gradually, like a real chase camera, instead
-			// of snapping to match the car's instantaneous heading every
-			// frame — exactly the "لا تربطها بحركة السيارة" ask.
-			const rawYaw = Math.atan2( _forward.x, _forward.z );
-			if ( this._chaseYaw === null ) this._chaseYaw = rawYaw;
-			const yawAlpha = 1 - Math.exp( - dt * this.chaseYawSmoothing );
-			this._chaseYaw = lerpAngle( this._chaseYaw, rawYaw, yawAlpha );
-			// Public mirror of the smoothed yaw — main.js reads this to
-			// keep the touch joystick's "up" direction matching whatever
-			// this camera currently shows as "ahead" (see Controls.js's
-			// own comment on its world-space joystick mapping, tuned for
-			// a FIXED camera azimuth elsewhere — a rotating chase cam
-			// needs that reference angle updated every frame instead).
-			this.chaseYaw = this._chaseYaw;
-			_forward.set( Math.sin( this._chaseYaw ), 0, Math.cos( this._chaseYaw ) );
-
-			_desired.copy( target ).addScaledVector( _forward, - this.chaseDistance );
-			_desired.y = target.y + this.chaseHeight;
-
-			const chaseAlpha = this.initialized ? 1 - Math.exp( - dt * this.cameraSmoothing ) : 1;
-			this.smoothedDesired.lerp( _desired, chaseAlpha );
-			this.initialized = true;
-
-			this.camera.position.copy( this.smoothedDesired );
-
-			_lookPoint.copy( target ).addScaledVector( _forward, this.chaseLookAhead );
-			_lookPoint.y = target.y + this.chaseHeight * 0.4;
-			this.camera.lookAt( _lookPoint );
-
-			this.debug.position.copy( target );
-			this.debug.position.y += 0.05;
-			this.debug.scale.set( this.deadzoneRadius, 1, this.deadzoneRadius );
-
-			return;
-
-		}
+	update( dt, target, velocity ) {
 
 		const radius = this.deadzoneRadius;
 		const radiusSq = radius * radius;

@@ -218,7 +218,7 @@ const modelNames = [
 	'vehicle-camry', 'vehicle-camaro', 'vehicle-jeep',
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
-	'highway-tree', 'highway-streetlight', 'highway-gas-station',
+	'highway-tree', 'highway-streetlight',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -3732,8 +3732,8 @@ function setupWebAIExtras( aiDrivers, idPrefix ) {
 //     assigned a "slot index" along Z, repositioned (not rebuilt) once
 //     the player gets far enough past it that it can jump to the far
 //     end of the active window instead — the classic endless-runner
-//     conveyor-belt technique. Gas stations use the same technique with
-//     a sparser, wider spacing.
+//     conveyor-belt technique. Each slot's KINEMATIC pole/trunk
+//     colliders move the same way, right alongside their visual meshes.
 
 const HW_LANE_WIDTH = 3.2;
 const HW_LANES_PER_DIR = 4;
@@ -3741,10 +3741,6 @@ const HW_ROAD_WIDTH = HW_LANE_WIDTH * HW_LANES_PER_DIR; // one direction's paved
 const HW_MEDIAN_HALF = 3; // median half-width (curb to curb from center)
 const HW_SHOULDER = 2.2; // sand shoulder right at the asphalt edge
 const HW_DIRT_WIDTH = 7; // transitional dirt band before open desert
-// Total corridor half-width actually built with ground planes; the
-// desert backdrop plane extends well past this so driving off-road
-// never runs out of supporting ground.
-const HW_CORRIDOR_HALF = HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER + HW_DIRT_WIDTH;
 const HW_GROUND_HALF_X = 160;
 const HW_GROUND_HALF_Z = 20000; // "endless" in practice — see note above
 
@@ -3752,32 +3748,6 @@ const HW_SEGMENT_LENGTH = 60; // Z length of one recyclable prop slot
 const HW_TRAILING_SEGMENTS = 4;
 const HW_LEADING_SEGMENTS = 5;
 const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
-
-// Gas stations: much sparser, one every several highway segments, on
-// alternating sides of the road out past the dirt band.
-const HW_POI_SPACING = HW_SEGMENT_LENGTH * 6;
-const HW_POI_TRAILING = 1;
-const HW_POI_LEADING = 2;
-const HW_POI_ACTIVE = HW_POI_TRAILING + HW_POI_LEADING + 1;
-
-// models/highway-gas-station.glb is a whole site plan (building + canopy
-// + landscaping + its own driveway), not a single compact prop, sourced
-// at an arbitrary real-world scale — its own raw bounding box, measured
-// once directly from the file (X=width, Y=height, Z=depth):
-const HW_GAS_RAW_SIZE = { x: 300.3062286376953, y: 27.23973846435547, z: 115.63184475844616 };
-// Scaled by WIDTH rather than height (wrapHighwayProp's usual axis):
-// this asset is wide-and-flat, not tall, so matching it to a target
-// HEIGHT like the tree/streetlight would barely shrink its enormous
-// footprint and leave it sprawling across the road itself (exactly what
-// happened before this was measured properly). Target 45 units wide —
-// a modest roadside lot.
-const HW_GAS_TARGET_WIDTH = 45;
-const HW_GAS_SCALE = HW_GAS_TARGET_WIDTH / HW_GAS_RAW_SIZE.x;
-// applyHighwayPOITransform rotates the whole site ±90° to face the
-// road, which swaps which world axis its footprint extends along — its
-// raw Z (depth) ends up spanning world X, so THAT's the half-extent that
-// has to clear the corridor, not its (now Z-facing) width.
-const HW_GAS_SCALED_DEPTH = HW_GAS_RAW_SIZE.z * HW_GAS_SCALE;
 
 // Diffuse-only canvas texture for one direction's paved lanes: dashed
 // white dividers between same-direction lanes, a solid white line at
@@ -3869,19 +3839,6 @@ function wrapHighwayProp( source, targetHeight ) {
 
 }
 
-// Same recentering as wrapHighwayProp, but scaled by an already-known
-// factor instead of measuring+deriving it from the model's own height —
-// for a wide-and-flat asset like the gas station site plan, matching a
-// target HEIGHT would barely shrink its enormous footprint (see
-// HW_GAS_SCALE's own comment).
-function wrapHighwayPropByScale( source, scale ) {
-
-	const inst = source.clone( true );
-	const box = new THREE.Box3().setFromObject( inst );
-	return wrapHighwayPropAt( inst, box, scale );
-
-}
-
 function wrapHighwayPropAt( inst, box, scale ) {
 
 	const wrapper = new THREE.Group();
@@ -3896,56 +3853,65 @@ function wrapHighwayPropAt( inst, box, scale ) {
 
 }
 
+// Streetlight/tree pole height, shared between the visual wrapHighwayProp
+// scale and the physics collider height below, so a collision box can
+// never end up mismatched from what's actually drawn.
+const HW_PROP_HEIGHT = 9;
+
 // One recyclable prop slot: a median tree clump + a streetlight pole on
 // each side of the median, all at fixed local offsets within the slot
 // (see buildHighwayWorld's own comment — recycling only ever repositions
-// this group along Z, it never rebuilds the contents).
-function createHighwaySegmentProps( models ) {
+// this group along Z, it never rebuilds the contents). Also creates a
+// slim KINEMATIC cylinder collider per pole/trunk so the car actually
+// crashes into them — KINEMATIC rather than STATIC because these need
+// to be repositioned every time their slot recycles (rigidBody.setPosition
+// works on any motion type, but a STATIC body is meant to genuinely
+// never move again; KINEMATIC is crashcat's own "moved by code, not by
+// forces" type, matching what recycling actually does to it every time).
+function createHighwaySegmentProps( models, world ) {
 
 	const group = new THREE.Group();
+	const bodies = [];
 
-	const tree = wrapHighwayProp( models[ 'highway-tree' ], 9 );
-	tree.position.set( 0, 0, HW_SEGMENT_LENGTH * 0.33 );
+	const addPoleCollider = ( x, z, radius ) => {
+
+		const body = rigidBody.create( world, {
+			shape: cylinder.create( { halfHeight: HW_PROP_HEIGHT / 2, radius } ),
+			motionType: MotionType.KINEMATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ x, HW_PROP_HEIGHT / 2, z ],
+			friction: 0.4,
+			restitution: 0.15,
+		} );
+		bodies.push( { body, localX: x, localZ: z } );
+
+	};
+
+	const treeZ = HW_SEGMENT_LENGTH * 0.33;
+	const tree = wrapHighwayProp( models[ 'highway-tree' ], HW_PROP_HEIGHT );
+	tree.position.set( 0, 0, treeZ );
 	group.add( tree );
+	addPoleCollider( 0, treeZ, 0.35 ); // trunk-width collider — the canopy above is decorative only
 
+	const lightZ = HW_SEGMENT_LENGTH * 0.75;
 	for ( const side of [ -1, 1 ] ) {
 
-		const light = wrapHighwayProp( models[ 'highway-streetlight' ], 9 );
-		light.position.set( side * ( HW_MEDIAN_HALF - 0.3 ), 0, HW_SEGMENT_LENGTH * 0.75 );
+		const light = wrapHighwayProp( models[ 'highway-streetlight' ], HW_PROP_HEIGHT );
+		const x = side * ( HW_MEDIAN_HALF - 0.3 );
+		light.position.set( x, 0, lightZ );
+		// The model's own lamp arm points toward local +X by default —
+		// correct as-is for the +X-side light (arm reaches out over ITS
+		// own lanes), but the -X-side light needs a 180° flip or its arm
+		// swings back the other way, hanging out over the median/wrong
+		// lanes instead of its own (reported: "الانارة... معكوسة وداخلة
+		// في الشارع" — confirmed by a top-down render of the raw model).
+		if ( side < 0 ) light.rotation.y = Math.PI;
 		group.add( light );
+		addPoleCollider( x, lightZ, 0.16 );
 
 	}
 
-	return group;
-
-}
-
-// A gas station slot's side (alternating, so consecutive stations don't
-// pile up on the same shoulder) and facing depend only on its slot
-// index's parity — shared by both createHighwayPOI (initial build) and
-// updateHighwayRecycling (repositioning an existing slot into a new
-// index) so recycling never needs to touch the model itself, only its
-// transform.
-function applyHighwayPOITransform( group, slotIndex ) {
-
-	const side = ( ( ( slotIndex % 2 ) + 2 ) % 2 === 0 ) ? 1 : -1; // sign-safe mod for negative indices
-	// Clears the corridor (median+road+shoulder+dirt) plus half the
-	// site's own rotated footprint, so its NEAR edge lands a few units
-	// into the open desert past the dirt band instead of the site's
-	// CENTER sitting there (which would still spill its far half back
-	// across the road — see HW_GAS_SCALED_DEPTH's own comment).
-	group.position.x = side * ( HW_CORRIDOR_HALF + HW_GAS_SCALED_DEPTH / 2 + 3 );
-	// Face the station back toward the road, mirrored per side.
-	group.rotation.y = side > 0 ? - Math.PI / 2 : Math.PI / 2;
-
-}
-
-// One recyclable gas station slot, set back past the dirt band.
-function createHighwayPOI( models, slotIndex ) {
-
-	const wrapper = wrapHighwayPropByScale( models[ 'highway-gas-station' ], HW_GAS_SCALE );
-	applyHighwayPOITransform( wrapper, slotIndex );
-	return wrapper;
+	return { group, bodies };
 
 }
 
@@ -4043,34 +4009,42 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const group = createHighwaySegmentProps( models );
+		const { group, bodies } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		segments.push( { group, index } );
+		const slot = { group, index, bodies };
+		repositionHighwaySegmentBodies( world, slot );
+		segments.push( slot );
 
 	}
 
-	// Recyclable gas-station slots, same technique, much sparser.
-	const pois = [];
-	for ( let i = 0; i < HW_POI_ACTIVE; i ++ ) {
+	return { segments, world };
 
-		const index = i - HW_POI_TRAILING;
-		const group = createHighwayPOI( models, index );
-		group.position.z = index * HW_POI_SPACING;
-		scene.add( group );
-		pois.push( { group, index } );
+}
+
+// Moves a segment slot's KINEMATIC pole/trunk colliders to match its
+// group's current position.z — called both right after a slot is first
+// built and every time recycling gives it a new index. Only Z ever
+// changes (X/Y are the same fixed local offsets baked in at creation),
+// so this is the one thing that actually needs redoing; the visual
+// meshes underneath the group move for free since they're parented to it.
+function repositionHighwaySegmentBodies( world, slot ) {
+
+	const z = slot.group.position.z;
+	for ( const b of slot.bodies ) {
+
+		rigidBody.setPosition( world, b.body, [ b.localX, HW_PROP_HEIGHT / 2, z + b.localZ ], true );
 
 	}
-
-	return { segments, pois };
 
 }
 
 // Called every frame with the player's current world Z: keeps exactly
-// HW_ACTIVE_SEGMENTS (resp. HW_POI_ACTIVE) prop slots alive in a window
-// centered on the player, sliding any slot that fell outside the window
-// to the opposite, still-empty end instead of ever creating/destroying
-// geometry — the standard endless-runner conveyor-belt recycle.
+// HW_ACTIVE_SEGMENTS prop slots alive in a window centered on the
+// player, sliding any slot that fell outside the window to the
+// opposite, still-empty end instead of ever creating/destroying
+// geometry or physics bodies — the standard endless-runner
+// conveyor-belt recycle.
 function updateHighwayRecycling( highwayState, playerZ ) {
 
 	const currentSegment = Math.floor( playerZ / HW_SEGMENT_LENGTH );
@@ -4082,19 +4056,7 @@ function updateHighwayRecycling( highwayState, playerZ ) {
 		else if ( slot.index > segMax ) slot.index -= HW_ACTIVE_SEGMENTS;
 		else continue;
 		slot.group.position.z = slot.index * HW_SEGMENT_LENGTH;
-
-	}
-
-	const currentPOI = Math.floor( playerZ / HW_POI_SPACING );
-	const poiMin = currentPOI - HW_POI_TRAILING;
-	const poiMax = currentPOI + HW_POI_LEADING;
-	for ( const slot of highwayState.pois ) {
-
-		if ( slot.index < poiMin ) slot.index += HW_POI_ACTIVE;
-		else if ( slot.index > poiMax ) slot.index -= HW_POI_ACTIVE;
-		else continue;
-		slot.group.position.z = slot.index * HW_POI_SPACING;
-		applyHighwayPOITransform( slot.group, slot.index ); // side/facing depend on the new index's parity too
+		repositionHighwaySegmentBodies( highwayState.world, slot );
 
 	}
 
@@ -4390,14 +4352,16 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// now further back than the classic track mode's own default of 1.
 	// far/near stay wide enough for the open arena to not clip either way.
 	// WEB/AR keep the original isometric offset.
-	// الطريق (highway) uses a rear third-person chase cam that follows
-	// the car's own heading (road stretches away toward the top of the
-	// screen as you drive) instead of the fixed-diagonal isometric offset
-	// every other mode uses — a long straight road reads far better
-	// followed head-on. chaseYawSmoothing (Camera's own default) keeps it
-	// from swinging with every steering wobble, per request.
+	// الطريق (highway) uses a fixed straight-behind view instead of the
+	// diagonal isometric offset every other mode uses — a long straight
+	// road reads far better followed head-on. A first pass rotated this
+	// camera to track the car's own heading, but per feedback that read
+	// as "moving with the car" — reverted to the same fixed-angle
+	// deadzone/lead system every other mode already uses (just aimed
+	// from behind instead of from the isometric diagonal): the camera's
+	// own facing never changes, only its position follows.
 	const cam = freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
-		: highway ? new Camera( { chaseHeading: true, chaseDistance: 8, chaseHeight: 2.6, chaseLookAhead: 10, far: 200, near: 1 } )
+		: highway ? new Camera( { offset: new THREE.Vector3( 0, 3.6, -9 ), far: 200, near: 1 } )
 		: new Camera();
 	scene.add( cam.debug );
 
@@ -4494,15 +4458,12 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			}
 
 			const racing = raceState.phase === 'racing';
-			// الطريق's rear-following camera rotates with the car, so the
-			// touch joystick's "up" needs to track its CURRENT heading
-			// instead of the fixed 45° every other mode's camera sits at
-			// — see Controls.update()'s own comment. chaseYaw is only
-			// set once cam.update() has run at least once (below, after
-			// this); undefined for that first frame falls back to
-			// Controls' own default, same as every non-highway mode.
-			const controlsAngle = highway ? ( ( cam.chaseYaw ?? 0 ) + Math.PI ) : undefined;
-			const rawInput = controls.update( controlsAngle );
+			// الطريق's camera sits directly behind (offset azimuth π, not
+			// the 45° every other mode's diagonal isometric camera uses)
+			// — see Controls.update()'s own comment on why the touch
+			// joystick's "up" needs to match whichever angle the current
+			// camera treats as "ahead".
+			const rawInput = controls.update( highway ? Math.PI : undefined );
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
@@ -4589,7 +4550,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead, vehicle.container.quaternion );
+			cam.update( dt, vehicle.spherePos, _camLead );
 
 			renderer.render( scene, cam.camera );
 
