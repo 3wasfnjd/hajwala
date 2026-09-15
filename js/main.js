@@ -4709,6 +4709,42 @@ function createHighwaySkyDome() {
 	ctx.arc( sunX, sunY, 26, 0, Math.PI * 2 );
 	ctx.fill();
 
+	// Distant sand dunes (نفود) along the horizon — soft, rolling, hazy
+	// ridges rather than sharp peaks, since these are dunes, not rocky
+	// mountains. Two layers for a little depth (a lighter/hazier far
+	// ridge, a slightly darker/more defined one in front). Each ridge is
+	// a sum of sine waves at INTEGER frequencies across the canvas width,
+	// so the shape repeats exactly at x=0 and x=w — the sphere's own seam
+	// (phi=0/2π meet there, since phiLength spans the full circle) stays
+	// invisible because the ridge tiles across it with no visible joint.
+	// Sits at v≈0.9-1, right at the horizon band, comfortably below the
+	// pole-warp zone the sun/clouds above stay clear of.
+	const drawDuneRidge = ( baseY, amp, color, phase ) => {
+
+		const ridgeY = ( x ) => {
+
+			const t = ( x / w ) * Math.PI * 2;
+			return baseY - amp * (
+				0.5 * Math.sin( t * 3 + phase ) +
+				0.3 * Math.sin( t * 7 + phase * 1.7 ) +
+				0.2 * Math.sin( t * 13 + phase * 2.3 )
+			);
+
+		};
+
+		ctx.fillStyle = color;
+		ctx.beginPath();
+		ctx.moveTo( 0, h );
+		for ( let x = 0; x <= w; x += 8 ) ctx.lineTo( x, ridgeY( x ) );
+		ctx.lineTo( w, h );
+		ctx.closePath();
+		ctx.fill();
+
+	};
+
+	drawDuneRidge( h * 0.90, h * 0.025, 'rgba(196,168,128,0.55)', 0 );
+	drawDuneRidge( h * 0.95, h * 0.035, 'rgba(150,118,82,0.75)', 4 );
+
 	const texture = new THREE.CanvasTexture( canvas );
 	texture.colorSpace = THREE.SRGBColorSpace;
 
