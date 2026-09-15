@@ -6,7 +6,7 @@ import { Vehicle, MAX_SPEED } from './Vehicle.js';
 import { Camera } from './Camera.js';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
-import { updateRaceAIDrivers, updateFreeRoamAIDrivers } from './AIController.js';
+import { updateRaceAIDrivers, updateFreeRoamAIDrivers, TOTAL_RACE_LAPS } from './AIController.js';
 import { buildWallColliders, createSphereBody } from './Physics.js';
 import { SmokeTrails } from './Particles.js';
 import { DriftMarks } from './DriftMarks.js';
@@ -3385,6 +3385,7 @@ function setupFullscreenToggle() {
 
 	const btn = document.createElement( 'button' );
 	btn.id = 'hw-fullscreen-btn';
+	btn.className = 'game-hud';
 	document.body.appendChild( btn );
 
 	function sync() {
@@ -3442,6 +3443,7 @@ function setupMusicToggle() {
 
 	const btn = document.createElement( 'button' );
 	btn.id = 'hw-music-btn';
+	btn.className = 'game-hud';
 	document.body.appendChild( btn );
 
 	function sync() {
@@ -3710,9 +3712,19 @@ function updateVehicleAndFx( dt, input, ctx ) {
 
 	particles.update( dt, vehicle );
 	driftMarks.update( dt, vehicle );
-	audio.update( dt, vehicle.linearSpeed / MAX_SPEED, input.z, vehicle.driftIntensity, vehicle.linearSpeed < -0.01 );
+	// Same vehicle.maxSpeedMultiplier normalization as the speedometer/
+	// body-tilt fixes elsewhere (a no-op at the default multiplier of 1,
+	// every mode but highway): without it, highway mode's boosted real
+	// top speed hits this un-normalized "fraction of MAX_SPEED" ceiling
+	// of 1.0 at only ~71% of the car's actual top speed, so the engine
+	// sound's simulated gear/RPM (Audio.js clamps this fraction to
+	// [0,1]) and the flag's wind flutter both stop climbing/changing for
+	// the rest of the acceleration curve instead of reflecting the car's
+	// real, still-increasing speed.
+	const speedFraction = vehicle.linearSpeed / ( MAX_SPEED * vehicle.maxSpeedMultiplier );
+	audio.update( dt, speedFraction, input.z, vehicle.driftIntensity, vehicle.linearSpeed < -0.01 );
 	if ( vehicle.justLaunched ) audio.playLaunch();
-	if ( vehicleFlag ) vehicleFlag.updateFlutter( dt, Math.abs( vehicle.linearSpeed / MAX_SPEED ) );
+	if ( vehicleFlag ) vehicleFlag.updateFlutter( dt, Math.abs( speedFraction ) );
 
 	if ( lapTimer ) {
 
@@ -3732,8 +3744,6 @@ function updateVehicleAndFx( dt, input, ctx ) {
 // joystick control (see Controls.js/Vehicle.js), so movement quality
 // matches the player's car and auto-gas naturally targets MAX_SPEED —
 // giving genuinely competitive AI without extra speed tuning.
-
-const TOTAL_RACE_LAPS = 3; // matches LapTimer.js's own TOTAL_LAPS
 
 // Computes a 2-wide staggered starting grid behind the finish line —
 // slot 0 is the player (front-left), slots 1+ are AI opponents.

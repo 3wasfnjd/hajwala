@@ -500,9 +500,16 @@ export class GameAudio {
 	// click at the start/stop edges.
 	setHorn( on ) {
 
-		if ( ! this.hornSound || ! this.hornSound.buffer ) return;
+		if ( ! this.hornSound ) return;
 		if ( on === this.hornOn ) return;
 		this.hornOn = on;
+
+		// Buffer not loaded yet — hornOn is still latched above so the
+		// loader callback's own "already held while loading" recovery
+		// (see the audio/horn.mp3 loader) can pick it up and start
+		// playback the instant the buffer arrives, instead of this press
+		// being silently lost and needing a release+re-press to register.
+		if ( ! this.hornSound.buffer ) return;
 
 		if ( ! this.unlocked ) return; // nothing audible would happen anyway
 

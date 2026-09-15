@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { CELL_RAW, GRID_SCALE, TRACK_CELLS, TYPE_NAMES, computeSpawnPosition } from './Track.js';
+import { TOTAL_RACE_LAPS as TOTAL_LAPS } from './AIController.js';
 
 const FINISH = TYPE_NAMES[ 3 ];
 const STORAGE_PREFIX = 'racing.bestLap.';
-const TOTAL_LAPS = 3;
 const _tmp = new THREE.Vector3();
 
 function loadBest( key ) {

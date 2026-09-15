@@ -46,6 +46,7 @@ export class ARManager {
 		this._prevHeadlightButton = false;
 		this._prevHazardButton = false;
 		this._prevMusicButton = false;
+		this._prevMenuButton = false;
 
 		this.controllerModelFactory = new XRControllerModelFactory();
 		this._setupControllers();
