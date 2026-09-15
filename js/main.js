@@ -3504,7 +3504,7 @@ function setupNavCompass() {
 
 function setupTouchUI( vehicleLights ) {
 
-	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
+	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false, handbrakeHeld: false };
 
 	// Bigger pill-shaped buttons (icon + small label stacked), per a
 	// reference screenshot of a more polished HUD's side dock — same
@@ -3513,22 +3513,22 @@ function setupTouchUI( vehicleLights ) {
 	const style = document.createElement( 'style' );
 	style.textContent = `
 		#hw-touch-dock {
-			position: fixed; left: 14px; bottom: 110px; z-index: 30;
-			display: flex; flex-direction: row; gap: 10px;
-			padding: 8px 12px; border-radius: 26px;
+			position: fixed; left: 14px; top: 70px; z-index: 30;
+			display: flex; flex-direction: row; gap: 8px;
+			padding: 8px 10px; border-radius: 26px;
 			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
 			border: 1px solid rgba(139,95,191,0.35);
 			backdrop-filter: blur(6px);
 			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
 		}
 		#hw-touch-dock button {
-			width: 64px; height: 64px; border-radius: 18px; border: none; padding: 0;
+			width: 56px; height: 56px; border-radius: 16px; border: none; padding: 0;
 			background: rgba(255,255,255,0.06); color: #fff;
 			display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
 		}
-		#hw-touch-dock .hw-btn-icon { font-size: 22px; line-height: 1; }
-		#hw-touch-dock .hw-btn-label { font: 600 9.5px system-ui, sans-serif; color: rgba(255,255,255,0.85); line-height: 1; }
+		#hw-touch-dock .hw-btn-icon { font-size: 19px; line-height: 1; }
+		#hw-touch-dock .hw-btn-label { font: 600 8.5px system-ui, sans-serif; color: rgba(255,255,255,0.85); line-height: 1; }
 		#hw-touch-dock button:active {
 			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
 			transform: scale(0.94);
@@ -3551,6 +3551,11 @@ function setupTouchUI( vehicleLights ) {
 	const headlightBtn = makeTapButton( '💡', 'الأضواء' );
 	const hazardBtn = makeTapButton( '⚠️', 'الطوارئ' );
 	const highBeamBtn = makeTapButton( '🔆', 'عالية' );
+	// Touch had no way to trigger the handbrake at all until now — only
+	// Controls.js's own keyboard check ('B' key) and AR's dedicated
+	// on-screen button fed it, so it silently never worked on a
+	// touch-only phone (reported: "تأكد من الهاند بريك لا يعمل").
+	const handbrakeBtn = makeTapButton( '🅿️', 'هاندبريك' );
 
 	// Back to the main menu — added alongside the rest of this dock's
 	// buttons per feedback that WEB mode (both track and free-roam, since
@@ -3588,7 +3593,7 @@ function setupTouchUI( vehicleLights ) {
 	// "off" and immediately canceled whatever this button had just
 	// turned on. The frame loop now combines both sources before calling
 	// setHighBeam() once.
-	const touchState = { highBeamHeld: false };
+	const touchState = { highBeamHeld: false, handbrakeHeld: false };
 	highBeamBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
@@ -3606,10 +3611,31 @@ function setupTouchUI( vehicleLights ) {
 
 	} );
 
+	// Handbrake: same hold-not-tap pattern as high beam above — engaged
+	// only while actually held down, released the instant the finger
+	// lifts (or slides off/gets interrupted).
+	handbrakeBtn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		touchState.handbrakeHeld = true;
+
+	} );
+	[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
+
+		handbrakeBtn.addEventListener( evt, ( e ) => {
+
+			e.stopPropagation();
+			touchState.handbrakeHeld = false;
+
+		} );
+
+	} );
+
 	wrap.appendChild( homeBtn );
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
+	wrap.appendChild( handbrakeBtn );
 	document.body.appendChild( wrap );
 
 	return touchState;
@@ -5155,6 +5181,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			// joystick's "up" needs to match whichever angle the current
 			// camera treats as "ahead".
 			const rawInput = controls.update( highway ? Math.PI : undefined );
+			rawInput.handbrake = rawInput.handbrake || touchState.handbrakeHeld;
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
