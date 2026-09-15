@@ -4115,6 +4115,11 @@ const HW_SHOULDER = 2.2; // sand shoulder right at the asphalt edge
 const HW_DIRT_WIDTH = 7; // transitional dirt band before open desert
 const HW_GROUND_HALF_X = 160;
 const HW_GROUND_HALF_Z = 20000; // "endless" in practice — see note above
+// Where the invisible boundary wall sits (see buildHighwayWorld) and, per
+// feedback, also where the rock scatter (createHighwaySegmentProps) is
+// placed instead of near the road shoulder — both need this same X line.
+const HW_EDGE_WALL_INSET = 2; // sits just inside the visible ground plane's own edge, not flush with it
+const HW_EDGE_WALL_HALF_HEIGHT = 5;
 
 const HW_SEGMENT_LENGTH = 60; // Z length of one recyclable prop slot
 const HW_TRAILING_SEGMENTS = 4;
@@ -4300,6 +4305,10 @@ function wrapHighwayPropAt( inst, box, scale ) {
 // real height is only a few centimeters. Scaled to a target WIDTH (its
 // largest horizontal extent) instead, same centering/ground-alignment via
 // wrapHighwayPropAt.
+// Returns { group, size } — size is the ALREADY-SCALED bounding-box
+// dimensions (post targetWidth scale), letting a caller that needs a
+// matching physics collider (the rock scatter below) size one without
+// re-measuring the source model itself.
 function wrapHighwayGroundPatch( source, targetWidth ) {
 
 	const inst = source.clone( true );
@@ -4307,7 +4316,8 @@ function wrapHighwayGroundPatch( source, targetWidth ) {
 	const size = new THREE.Vector3();
 	box.getSize( size );
 	const scale = targetWidth / Math.max( size.x, size.z, 0.0001 );
-	return wrapHighwayPropAt( inst, box, scale );
+	const group = wrapHighwayPropAt( inst, box, scale );
+	return { group, size: size.multiplyScalar( scale ) };
 
 }
 
@@ -4460,7 +4470,7 @@ function createHighwaySegmentProps( models, world ) {
 
 		for ( const spec of patchSpecs ) {
 
-			const patch = wrapHighwayGroundPatch( models[ 'highway-ground-patch' ], spec.width );
+			const { group: patch } = wrapHighwayGroundPatch( models[ 'highway-ground-patch' ], spec.width );
 			patch.position.set( side * patchX, 0, spec.z );
 			patch.rotation.y = spec.rot * side;
 			group.add( patch );
@@ -4469,31 +4479,46 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// Rock outcrops scattered past the dirt band — purely decorative (the
-	// invisible boundary wall further out at HW_GROUND_HALF_X, see
-	// buildHighwayWorld, is what actually stops the car from driving off
-	// the edge of the world; these just give that edge a natural-looking
-	// "the desert gets rocky/closes off here" visual instead of open sand
-	// forever). Four Kenney rock shapes (highway-rock-a/b/c/d — CC0, same
-	// source as the rest of this project's original assets) at varied X/Z/
-	// width/rotation so the line reads as scattered outcrops rather than a
-	// repeating fence — same "fixed per-slot spec, no per-frame
-	// randomization" approach as the ground-clutter patches just above.
+	// Rock outcrops at the ground's own outer edge — right where the
+	// invisible boundary wall sits (HW_GROUND_HALF_X - HW_EDGE_WALL_INSET,
+	// see buildHighwayWorld), not scattered near the road shoulder like an
+	// earlier version had them. Per feedback, these are now real physical
+	// obstacles too — a KINEMATIC box collider per rock (repositioned on
+	// recycling via `bodies`, same as everything else in this array), so
+	// actually driving into one stops the car instead of ghosting through
+	// it; the invisible wall itself stays as the no-gaps backstop for
+	// whatever passes between rocks. Four Kenney rock shapes (highway-
+	// rock-a/b/c/d — CC0, same source as the rest of this project's
+	// original assets) at varied X/Z/width/rotation so the line reads as
+	// scattered outcrops rather than a repeating fence.
+	const rockLineX = HW_GROUND_HALF_X - HW_EDGE_WALL_INSET;
 	const rockSpecs = [
-		{ key: 'highway-rock-a', x: 24, z: HW_SEGMENT_LENGTH * 0.05, width: 3.2, rot: 0.4 },
-		{ key: 'highway-rock-c', x: 30, z: HW_SEGMENT_LENGTH * 0.28, width: 2.6, rot: -0.6 },
-		{ key: 'highway-rock-b', x: 21, z: HW_SEGMENT_LENGTH * 0.52, width: 4, rot: 1.1 },
-		{ key: 'highway-rock-d', x: 33, z: HW_SEGMENT_LENGTH * 0.72, width: 3.6, rot: -0.2 },
-		{ key: 'highway-rock-a', x: 26, z: HW_SEGMENT_LENGTH * 0.9, width: 2.2, rot: 0.9 },
+		{ key: 'highway-rock-a', x: rockLineX - 8, z: HW_SEGMENT_LENGTH * 0.05, width: 3.2, rot: 0.4 },
+		{ key: 'highway-rock-c', x: rockLineX - 2, z: HW_SEGMENT_LENGTH * 0.28, width: 2.6, rot: -0.6 },
+		{ key: 'highway-rock-b', x: rockLineX - 11, z: HW_SEGMENT_LENGTH * 0.52, width: 4, rot: 1.1 },
+		{ key: 'highway-rock-d', x: rockLineX, z: HW_SEGMENT_LENGTH * 0.72, width: 3.6, rot: -0.2 },
+		{ key: 'highway-rock-a', x: rockLineX - 6, z: HW_SEGMENT_LENGTH * 0.9, width: 2.2, rot: 0.9 },
 	];
 	for ( const side of [ -1, 1 ] ) {
 
 		for ( const spec of rockSpecs ) {
 
-			const rock = wrapHighwayGroundPatch( models[ spec.key ], spec.width );
-			rock.position.set( side * spec.x, 0, spec.z );
+			const { group: rock, size } = wrapHighwayGroundPatch( models[ spec.key ], spec.width );
+			const x = side * spec.x;
+			const y = size.y / 2;
+			rock.position.set( x, 0, spec.z );
 			rock.rotation.y = spec.rot * side;
 			group.add( rock );
+
+			const body = rigidBody.create( world, {
+				shape: box.create( { halfExtents: [ size.x / 2, size.y / 2, size.z / 2 ] } ),
+				motionType: MotionType.KINEMATIC,
+				objectLayer: world._OL_STATIC,
+				position: [ x, y, spec.z ],
+				friction: 0.4,
+				restitution: 0.15,
+			} );
+			bodies.push( { body, localX: x, localY: y, localZ: spec.z } );
 
 		}
 
@@ -4771,8 +4796,6 @@ function buildHighwayWorld( scene, models, world ) {
 	// effectively endless at this half-extent, matching HW_GROUND_HALF_Z,
 	// so there's no per-segment wall to maintain) — negligible cost for
 	// something the player will rarely if ever actually reach.
-	const HW_EDGE_WALL_INSET = 2; // sits just inside the visible ground plane's own edge, not flush with it
-	const HW_EDGE_WALL_HALF_HEIGHT = 5;
 	for ( const side of [ -1, 1 ] ) {
 
 		rigidBody.create( world, {
