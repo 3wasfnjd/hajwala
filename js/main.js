@@ -4819,11 +4819,13 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	if ( highway ) {
 
 		highwayState = buildHighwayWorld( scene, models, world );
-		// Spawn on the rightmost lane of the +X direction, facing +Z —
-		// matches createHighwaySegmentProps' own slot layout (index 0
-		// covers Z 0..HW_SEGMENT_LENGTH) so the first tree/light pair is
-		// already in view rather than behind the player.
-		const laneCenterX = HW_MEDIAN_HALF + HW_ROAD_WIDTH - HW_LANE_WIDTH / 2;
+		// Spawn on the rightmost lane of the -X carriageway (the OTHER
+		// street from the median, per feedback — the correct real-world
+		// side to start driving from), still facing +Z — matches
+		// createHighwaySegmentProps' own slot layout (index 0 covers Z
+		// 0..HW_SEGMENT_LENGTH) so the first tree/light pair is already in
+		// view rather than behind the player.
+		const laneCenterX = -( HW_MEDIAN_HALF + HW_ROAD_WIDTH - HW_LANE_WIDTH / 2 );
 		vehicleSpawn = { position: [ laneCenterX, HW_SPHERE_RADIUS, 5 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position, HW_SPHERE_RADIUS );
 
