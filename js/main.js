@@ -1425,21 +1425,31 @@ function createSandTexture() {
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#8a6d47';
+	// This flat fill looked convincingly dark in an unlit canvas preview,
+	// but highway/free-roam's actual scene lighting (a THREE.DirectionalLight
+	// at intensity 3 plus a THREE.HemisphereLight at intensity 2, through
+	// ACESFilmicToneMapping) washes a mid-tone brown out to a pale,
+	// barely-there tan in the real lit render — confirmed by rendering
+	// this exact material under that same lighting setup, not just the
+	// raw texture (reported: the "darker" ground read as basically
+	// unchanged in actual gameplay). Dropped much further to compensate;
+	// verified this tone actually reads as dark dirt once lit, not just
+	// on its own in an editor-style unlit preview.
+	ctx.fillStyle = '#3e3020';
 	ctx.fillRect( 0, 0, size, size );
 
 	for ( let i = 0; i < 2200; i ++ ) {
 
 		const x = Math.random() * size, y = Math.random() * size;
 		const v = Math.random();
-		const shade = v < 0.5 ? `rgba(90,68,42,${ 0.08 + Math.random() * 0.12 })` : `rgba(160,132,90,${ 0.08 + Math.random() * 0.15 })`;
+		const shade = v < 0.5 ? `rgba(40,30,18,${ 0.08 + Math.random() * 0.12 })` : `rgba(80,64,42,${ 0.08 + Math.random() * 0.15 })`;
 		ctx.fillStyle = shade;
 		ctx.fillRect( x, y, 1.6, 1.6 );
 
 	}
 
 	// Faint wind-ripple streaks
-	ctx.strokeStyle = 'rgba(70,52,32,0.1)';
+	ctx.strokeStyle = 'rgba(25,18,10,0.1)';
 	ctx.lineWidth = 2;
 	for ( let i = 0; i < 18; i ++ ) {
 
@@ -4705,7 +4715,15 @@ function createHighwaySkyDome() {
 	// Upper hemisphere only (thetaLength = PI/2) — plenty for a
 	// forward/rear chase camera that never tilts to look straight down,
 	// and halves the fill-rate cost of a full sphere for no visible loss.
-	const geo = new THREE.SphereGeometry( 300, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 );
+	// Radius must stay comfortably under the highway camera's own far
+	// clip plane (200 — see its `new Camera(...)` call) or the ENTIRE
+	// dome gets frustum-culled and never draws at all: reported as the
+	// sky rendering as a flat, gradient-less, sun-less yellow — that flat
+	// tone was just scene.background's own fallback color showing
+	// through, since every point on a 300-radius dome centered on the
+	// camera sits at exactly 300, past a 200 far plane. 150 leaves a
+	// healthy margin under it.
+	const geo = new THREE.SphereGeometry( 150, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 );
 	const mat = new THREE.MeshBasicMaterial( { map: texture, side: THREE.BackSide, fog: false, depthWrite: false } );
 	const dome = new THREE.Mesh( geo, mat );
 	dome.renderOrder = -1;
