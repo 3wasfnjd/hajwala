@@ -3171,32 +3171,41 @@ function setupSpeedometer() {
 		   but this still reads fine sitting a bit higher there too. */
 		#hw-speedo {
 			position: fixed; right: 16px; bottom: 60px; z-index: 25; width: 168px; height: 168px;
-			filter: drop-shadow(0 6px 20px rgba(0,0,0,0.45));
+			filter: drop-shadow(0 6px 20px rgba(0,0,0,0.5));
 		}
 		#hw-speedo svg { width: 100%; height: 100%; overflow: visible; }
-		#hw-speedo .hw-speedo-track { fill: none; stroke: rgba(255,255,255,0.16); stroke-width: 11; }
-		#hw-speedo .hw-speedo-fill {
-			fill: none; stroke: #5B8CFF; stroke-width: 11; stroke-linecap: round;
-			transition: stroke 0.15s; filter: drop-shadow(0 0 6px currentColor);
-		}
-		#hw-speedo .hw-speedo-tick { stroke: rgba(255,255,255,0.55); stroke-width: 2; }
+		#hw-speedo .hw-speedo-tick-major { stroke: #eee; stroke-width: 2.5; }
+		#hw-speedo .hw-speedo-tick-minor { stroke: rgba(255,255,255,0.45); stroke-width: 1.5; }
 		#hw-speedo .hw-speedo-label {
-			fill: rgba(255,255,255,0.6); font: 600 10px system-ui, sans-serif;
+			fill: #ddd; font: 600 10px system-ui, sans-serif;
 			text-anchor: middle; dominant-baseline: middle;
 		}
-		#hw-speedo .hw-speedo-center {
-			position: absolute; inset: 0; display: flex; flex-direction: column;
-			align-items: center; justify-content: center; pointer-events: none;
-			padding-bottom: 14px; /* nudge up off-center, clear of the bottom tick gap */
+		#hw-speedo .hw-speedo-needle { fill: #e0483c; transition: fill 0.15s; }
+		#hw-speedo .hw-speedo-unit {
+			fill: rgba(255,255,255,0.55); font: 600 11px system-ui, sans-serif;
+			text-anchor: middle; dominant-baseline: middle;
 		}
-		#hw-speedo .hw-speedo-value { font: 800 34px system-ui, sans-serif; color: #fff; line-height: 1; text-shadow: 0 1px 6px rgba(91,140,255,0.6); }
-		#hw-speedo .hw-speedo-unit { font: 600 12px system-ui, sans-serif; color: rgba(255,255,255,0.65); margin-top: 3px; }
+		/* Handbrake badge — same spot/style as the reference's traction-control
+		   circle, overlapping the dial's own bottom-right rim. */
+		#hw-speedo-hb {
+			position: absolute; right: -6px; bottom: 2px; width: 46px; height: 46px; border-radius: 50%;
+			background: radial-gradient(circle at 35% 30%, #3a3a3f, #16161a 70%);
+			border: 2px solid #555; display: flex; align-items: center; justify-content: center;
+			box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+			transition: box-shadow 0.15s;
+		}
+		#hw-speedo-hb svg { width: 26px; height: 26px; }
+		#hw-speedo-hb .hw-hb-icon { stroke: #666; fill: none; stroke-width: 2; stroke-linecap: round; transition: stroke 0.15s; }
+		#hw-speedo-hb.active { box-shadow: 0 0 12px 2px rgba(224,72,60,0.7), 0 3px 10px rgba(0,0,0,0.5); }
+		#hw-speedo-hb.active .hw-hb-icon { stroke: #e0483c; }
 	`;
 	document.head.appendChild( style );
 
 	// Polar helper: angleDeg=0 is straight up, increasing CLOCKWISE — the
 	// dial sweeps from -150° (bottom-left, value 0) to +150° (bottom-
-	// right, SPEEDOMETER_TICK_MAX), leaving a 60° gap at the bottom.
+	// right, SPEEDOMETER_TICK_MAX), leaving a 60° gap at the bottom —
+	// same layout as before, just a realistic chrome/needle face now
+	// (per a reference photo) instead of the old flat colored-arc style.
 	const CX = 84, CY = 84, R = 70;
 	const toXY = ( angleDeg, radius ) => {
 
@@ -3206,25 +3215,38 @@ function setupSpeedometer() {
 	};
 
 	const SWEEP_START = -150, SWEEP_END = 150;
-	const CIRC = 2 * Math.PI * R;
-	const ARC_LEN = CIRC * ( ( SWEEP_END - SWEEP_START ) / 360 );
-	// Base rotation puts the circle's own natural start point (normally
-	// 3-o'clock) at SWEEP_START in the toXY() convention above — -90°
-	// gets it to 12-o'clock (angleDeg=0), then the remaining offset walks
-	// it the rest of the way to SWEEP_START.
-	const BASE_ROTATE = -90 + SWEEP_START;
-
 	const SPEEDOMETER_TICK_MAX = 200; // last numbered mark — SPEEDOMETER_MAX_KMH (220) itself sits a little past it, same as a real gauge's headroom past its highest label
-	const TICK_VALUES = [ 0, 40, 80, 120, 160, 200 ];
-	let ticksSvg = '';
-	for ( const v of TICK_VALUES ) {
+	const angleForValue = ( v ) => SWEEP_START + Math.min( 1, v / SPEEDOMETER_TICK_MAX ) * ( SWEEP_END - SWEEP_START );
 
-		const angle = SWEEP_START + ( v / SPEEDOMETER_TICK_MAX ) * ( SWEEP_END - SWEEP_START );
-		const [ x1, y1 ] = toXY( angle, R - 9 );
-		const [ x2, y2 ] = toXY( angle, R + 2 );
-		const [ lx, ly ] = toXY( angle, R + 16 ); // outside the rim, clear of the big digital readout at center
-		ticksSvg += `<line class="hw-speedo-tick" x1="${ x1.toFixed( 1 ) }" y1="${ y1.toFixed( 1 ) }" x2="${ x2.toFixed( 1 ) }" y2="${ y2.toFixed( 1 ) }" />`;
+	const MAJOR_TICKS = [ 0, 40, 80, 120, 160, 200 ];
+	const MINOR_TICKS = [ 20, 60, 100, 140, 180 ];
+	let ticksSvg = '';
+	for ( const v of MAJOR_TICKS ) {
+
+		const angle = angleForValue( v );
+		const [ x1, y1 ] = toXY( angle, R - 12 );
+		const [ x2, y2 ] = toXY( angle, R - 1 );
+		const [ lx, ly ] = toXY( angle, R - 26 );
+		ticksSvg += `<line class="hw-speedo-tick-major" x1="${ x1.toFixed( 1 ) }" y1="${ y1.toFixed( 1 ) }" x2="${ x2.toFixed( 1 ) }" y2="${ y2.toFixed( 1 ) }" />`;
 		ticksSvg += `<text class="hw-speedo-label" x="${ lx.toFixed( 1 ) }" y="${ ly.toFixed( 1 ) }">${ v }</text>`;
+
+	}
+	for ( const v of MINOR_TICKS ) {
+
+		const angle = angleForValue( v );
+		const [ x1, y1 ] = toXY( angle, R - 9 );
+		const [ x2, y2 ] = toXY( angle, R - 1 );
+		ticksSvg += `<line class="hw-speedo-tick-minor" x1="${ x1.toFixed( 1 ) }" y1="${ y1.toFixed( 1 ) }" x2="${ x2.toFixed( 1 ) }" y2="${ y2.toFixed( 1 ) }" />`;
+
+	}
+
+	// Subtle concentric brushed-metal rings on the dark face, purely
+	// decorative — thin low-opacity circles rather than an actual texture
+	// image.
+	let textureSvg = '';
+	for ( let r = R - 16; r > 14; r -= 7 ) {
+
+		textureSvg += `<circle cx="${ CX }" cy="${ CY }" r="${ r }" fill="none" stroke="rgba(255,255,255,0.035)" stroke-width="1" />`;
 
 	}
 
@@ -3232,34 +3254,58 @@ function setupSpeedometer() {
 	wrap.id = 'hw-speedo';
 	wrap.innerHTML = `
 		<svg viewBox="0 0 168 168">
-			<g transform="rotate(${ BASE_ROTATE } ${ CX } ${ CY })">
-				<circle class="hw-speedo-track" cx="${ CX }" cy="${ CY }" r="${ R }"
-					stroke-dasharray="${ ARC_LEN } ${ CIRC }" />
-				<circle class="hw-speedo-fill" cx="${ CX }" cy="${ CY }" r="${ R }"
-					stroke-dasharray="0 ${ CIRC }" />
-			</g>
+			<defs>
+				<radialGradient id="hw-speedo-face" cx="35%" cy="30%" r="75%">
+					<stop offset="0%" stop-color="#333338" />
+					<stop offset="60%" stop-color="#1a1a1d" />
+					<stop offset="100%" stop-color="#0c0c0e" />
+				</radialGradient>
+				<linearGradient id="hw-speedo-bezel" x1="0%" y1="0%" x2="100%" y2="100%">
+					<stop offset="0%" stop-color="#e8e8ec" />
+					<stop offset="35%" stop-color="#8a8a92" />
+					<stop offset="55%" stop-color="#3f3f45" />
+					<stop offset="100%" stop-color="#cfcfd4" />
+				</linearGradient>
+			</defs>
+			<circle cx="${ CX }" cy="${ CY }" r="${ R + 6 }" fill="none" stroke="url(#hw-speedo-bezel)" stroke-width="7" />
+			<circle cx="${ CX }" cy="${ CY }" r="${ R }" fill="url(#hw-speedo-face)" />
+			${ textureSvg }
 			${ ticksSvg }
+			<text class="hw-speedo-unit" x="${ CX }" y="${ CY + 44 }">كم/س</text>
+			<g id="hw-speedo-needle-pivot">
+				<polygon class="hw-speedo-needle" points="${ CX - 3 },${ CY } ${ CX + 3 },${ CY } ${ CX + 1.4 },${ CY - R + 20 } ${ CX - 1.4 },${ CY - R + 20 }" />
+				<circle cx="${ CX }" cy="${ CY }" r="7" fill="url(#hw-speedo-bezel)" />
+			</g>
 		</svg>
-		<div class="hw-speedo-center">
-			<div class="hw-speedo-value">0</div>
-			<div class="hw-speedo-unit">كم/س</div>
+		<div id="hw-speedo-hb">
+			<svg viewBox="0 0 24 24">
+				<path class="hw-hb-icon" d="M5 17 Q7 12 5 7" />
+				<path class="hw-hb-icon" d="M9 17 Q11 12 9 7" />
+				<rect class="hw-hb-icon" x="10" y="9" width="10" height="7" rx="1.5" />
+				<circle class="hw-hb-icon" cx="12.5" cy="18" r="1.6" />
+				<circle class="hw-hb-icon" cx="18" cy="18" r="1.6" />
+			</svg>
 		</div>
 	`;
 	document.body.appendChild( wrap );
 
-	const fillEl = wrap.querySelector( '.hw-speedo-fill' );
-	const valueEl = wrap.querySelector( '.hw-speedo-value' );
+	const needlePivot = wrap.querySelector( '#hw-speedo-needle-pivot' );
+	const needleEl = wrap.querySelector( '.hw-speedo-needle' );
+	const hbBadge = wrap.querySelector( '#hw-speedo-hb' );
 
 	return {
 
 		// speedFraction: 0..1 (or a little past 1 briefly on a launch/
-		// downhill boost — clamped so the fill never overshoots the dial).
-		update( speedFraction ) {
+		// downhill boost — clamped so the needle never overshoots the
+		// dial's own end stop). isHandbraking lights up the corner badge,
+		// same idea as a real dash's traction-control light.
+		update( speedFraction, isHandbraking = false ) {
 
 			const clamped = Math.max( 0, Math.min( 1, speedFraction ) );
-			fillEl.style.strokeDasharray = `${ ARC_LEN * clamped } ${ CIRC }`;
-			fillEl.style.stroke = clamped > 0.85 ? '#e0483c' : clamped > 0.55 ? '#e0a62a' : '#5B8CFF';
-			valueEl.textContent = String( Math.round( clamped * SPEEDOMETER_MAX_KMH ) );
+			const angle = angleForValue( clamped * SPEEDOMETER_MAX_KMH );
+			needlePivot.setAttribute( 'transform', `rotate(${ angle.toFixed( 1 ) } ${ CX } ${ CY })` );
+			needleEl.style.fill = clamped > 0.85 ? '#e0483c' : clamped > 0.55 ? '#e0a62a' : '#eee';
+			hbBadge.classList.toggle( 'active', !! isHandbraking );
 
 		},
 
@@ -5063,7 +5109,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			}
 
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
-			speedometer.update( Math.abs( vehicle.linearSpeed / MAX_SPEED ) );
+			speedometer.update( Math.abs( vehicle.linearSpeed / MAX_SPEED ), vehicle.handbrake );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {
 
