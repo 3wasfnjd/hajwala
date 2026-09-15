@@ -132,6 +132,19 @@ export class Controls {
 
 		steerZone.addEventListener( 'pointerup', endSteer );
 		steerZone.addEventListener( 'pointercancel', endSteer );
+		// Safety net for a missed pointerup/pointercancel (reported: after
+		// playing a while, especially with the handbrake, steering could
+		// get permanently stuck — the pointerdown handler above refuses
+		// any new touch while steerPointerId is still set, so once a
+		// browser drops/never dispatches the end event for a captured
+		// pointer — a known real-device Pointer Events quirk, more likely
+		// under the extra simultaneous touch a handbrake press adds —
+		// steering was stuck for the rest of the session with no way to
+		// recover). lostpointercapture is spec-guaranteed to fire whenever
+		// this element's capture of that pointer ends for ANY reason,
+		// including cases pointerup/pointercancel themselves don't cover,
+		// so it's a reliable backstop regardless of the exact cause.
+		steerZone.addEventListener( 'lostpointercapture', endSteer );
 
 	}
 
