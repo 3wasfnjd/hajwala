@@ -1,5 +1,14 @@
 import * as THREE from 'three';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+// Plain Object3D.clone(true) duplicates a SkinnedMesh's bones as new Bone
+// instances, but the cloned SkinnedMesh's own skeleton still references the
+// ORIGINAL bones — every clone would end up sharing one skeleton, so posing
+// one instance's bones would move every clone at once. SkeletonUtils.clone
+// rebuilds the skeleton→bone binding for each clone correctly; only needed
+// for wildlife-wolf (the only skinned/rigged model here — everything else,
+// rocks/trees/vehicles included, is a plain rigid mesh where clone(true)
+// already works fine).
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
@@ -220,6 +229,7 @@ const modelNames = [
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 	'highway-tree', 'highway-streetlight', 'highway-ground-patch', 'highway-barrier',
 	'highway-rock-a', 'highway-rock-b', 'highway-rock-c', 'highway-rock-d',
+	'wildlife-wolf', 'wildlife-snake',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -4277,6 +4287,107 @@ function wrapHighwayGroundPatch( source, targetWidth ) {
 
 }
 
+// Same recipe as wrapHighwayProp (scale to a target HEIGHT, recenter on the
+// base of its own bounding box) but for wildlife-wolf specifically — the
+// only SKINNED model this project loads. Cloning it via plain
+// source.clone(true) (what every other wrap*/scatter helper here does) would
+// duplicate the bone Object3Ds, but the cloned SkinnedMesh's own `skeleton`
+// property still points at the ORIGINAL bones (Object3D.clone() doesn't know
+// to remap that internal binding) — every instance placed this way would
+// share one skeleton and pose in lockstep instead of animating
+// independently. skeletonClone (SkeletonUtils.clone) rebuilds that binding
+// correctly per clone.
+// Returns { group, inst } — inst (the cloned, scaled-and-centered rig root)
+// is what the walk-cycle animator below needs to look up this INSTANCE's own
+// bones by name, not the shared source model's.
+function wrapHighwayWildlifeProp( source, targetHeight ) {
+
+	const inst = skeletonClone( source );
+	const box = new THREE.Box3().setFromObject( inst );
+	const size = new THREE.Vector3();
+	box.getSize( size );
+	const scale = targetHeight / Math.max( size.y, 0.0001 );
+	const group = wrapHighwayPropAt( inst, box, scale );
+	return { group, inst };
+
+}
+
+const WOLF_ROTATION_AXIS = new THREE.Vector3( 1, 0, 0 );
+
+// Procedural quadruped trot-cycle animator for wildlife-wolf.glb — the model
+// ships with a full, cleanly-named bone rig (spine chain, both leg pairs,
+// head/ears/jaw/tail) but NO baked animation clips at all, so this drives it
+// by hand instead of playing a THREE.AnimationMixer clip.
+// Rotation axis/sign per joint was found empirically, not assumed: rendered
+// this rig with a test rotation on one candidate axis at a time and compared
+// screenshots (see the dev history for this feature) — local +X swings a
+// REAR leg (thigh/shin) forward; the FRONT legs' own local bone frame turns
+// out mirrored relative to the rear ones, so the identical forward swing
+// needs the same axis but a NEGATED angle there instead. Y rotation on any
+// of these joints barely changes the silhouette at all (it's each bone's own
+// "roll"/pointing axis), so it's unused here.
+// Diagonal trot gait (real quadrupeds' natural walking gait): front-left +
+// rear-right swing together, front-right + rear-left swing in the opposite
+// half of the cycle — `strideT` is one shared clock driving both pairs via a
+// π phase offset, rather than four independently-timed legs.
+// Also note: GLTFLoader sanitizes glTF node names for use as animation
+// track paths, stripping characters like "." — so this model's own
+// "thigh.L_034" bone loads here as "thighL_034", etc.
+function createWolfWalker( inst ) {
+
+	const bone = ( name ) => inst.getObjectByName( name );
+	const bones = {
+		thighR: bone( 'thighR_038' ), shinR: bone( 'shinR_039' ),
+		thighL: bone( 'thighL_034' ), shinL: bone( 'shinL_035' ),
+		shoulderL: bone( 'shoulderL_020' ), frontThighL: bone( 'front_thighL_021' ), frontShinL: bone( 'front_shinL_022' ),
+		shoulderR: bone( 'shoulderR_025' ), frontThighR: bone( 'front_thighR_026' ), frontShinR: bone( 'front_shinR_027' ),
+		chest: bone( 'spine008_09' ), head: bone( 'Head_012' ), tail: bone( 'spine003_02' ),
+	};
+
+	const rest = {};
+	for ( const key in bones ) if ( bones[ key ] ) rest[ key ] = bones[ key ].quaternion.clone();
+
+	const _q = new THREE.Quaternion();
+	const setAngle = ( key, angle ) => {
+
+		const b = bones[ key ];
+		if ( ! b ) return;
+		_q.setFromAxisAngle( WOLF_ROTATION_AXIS, angle );
+		b.quaternion.copy( rest[ key ] ).multiply( _q );
+
+	};
+
+	return function update( strideT ) {
+
+		const flRR = strideT; // front-left + rear-right diagonal pair
+		const frRL = strideT + Math.PI; // front-right + rear-left diagonal pair
+
+		setAngle( 'thighR', 0.5 * Math.sin( flRR ) );
+		setAngle( 'shinR', 0.6 * Math.max( 0, Math.sin( flRR ) ) );
+		setAngle( 'thighL', 0.5 * Math.sin( frRL ) );
+		setAngle( 'shinL', 0.6 * Math.max( 0, Math.sin( frRL ) ) );
+
+		setAngle( 'shoulderL', - 0.35 * Math.sin( flRR ) );
+		setAngle( 'frontThighL', - 0.4 * Math.sin( flRR ) );
+		setAngle( 'frontShinL', 0.5 * Math.max( 0, - Math.sin( flRR ) ) );
+
+		setAngle( 'shoulderR', - 0.35 * Math.sin( frRL ) );
+		setAngle( 'frontThighR', - 0.4 * Math.sin( frRL ) );
+		setAngle( 'frontShinR', 0.5 * Math.max( 0, - Math.sin( frRL ) ) );
+
+		// Chest dips/head bobs twice per stride (once per diagonal pair's
+		// footfall) — small amplitude, just enough to read as alive rather
+		// than a rigid model sliding around.
+		setAngle( 'chest', 0.08 * Math.sin( strideT * 2 ) );
+		setAngle( 'head', - 0.05 * Math.sin( strideT * 2 ) );
+		// Tail runs on its own slower, gait-independent rhythm (a
+		// contented/curious sway) rather than locking to the legs.
+		setAngle( 'tail', 0.18 + 0.12 * Math.sin( strideT * 0.6 ) );
+
+	};
+
+}
+
 // Median concrete barrier (user supplied for طرفي الجزيرة — both median
 // edges): a short extruded run of barrier, meant to be tiled continuously
 // down the whole median rather than scattered as individual props like
@@ -4333,6 +4444,13 @@ function wrapHighwayBarrier( source, targetHeight, targetLength ) {
 // scale and the physics collider height below, so a collision box can
 // never end up mismatched from what's actually drawn.
 const HW_PROP_HEIGHT = 9;
+
+// Wildlife sizing — real-world-ish scale like every other highway prop
+// height/width constant here. A wolf PUP (not a full adult) stands well
+// under a meter at the shoulder; a resting/coiled snake reads as a
+// reasonably large one at roughly 0.7m across its coil.
+const HW_WOLF_HEIGHT = 0.55;
+const HW_SNAKE_WIDTH = 0.7;
 
 // One recyclable prop slot: a median tree clump + a streetlight pole on
 // each side of the median, all at fixed local offsets within the slot
@@ -4489,6 +4607,71 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
+	// Desert wildlife (حياة برية) — purely decorative, no collider (unlike
+	// the rocks above): a small trotting wolf pup on one shoulder and a
+	// coiled snake resting near the rocks on the other, one of each per
+	// recyclable slot. Neither model shipped with any baked animation (see
+	// createWolfWalker's own comment on the wolf's rig), so both are
+	// animated procedurally here and driven every frame from
+	// updateHighwaySegmentWildlife.
+	const wildlife = [];
+
+	{
+
+		const { group: wolfGroup, inst: wolfInst } = wrapHighwayWildlifeProp( models[ 'wildlife-wolf' ], HW_WOLF_HEIGHT );
+		const wolfBaseX = HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.4;
+		const wolfBaseZ = HW_SEGMENT_LENGTH * 0.42;
+		wolfGroup.position.set( wolfBaseX, 0, wolfBaseZ );
+		group.add( wolfGroup );
+		wildlife.push( {
+			wrapper: wolfGroup,
+			walk: createWolfWalker( wolfInst ),
+			baseZ: wolfBaseZ,
+			pathRange: 2.2,
+			// Every slot's wolf shares the same global animation clock (see
+			// updateHighwaySegmentWildlife) offset by its own index so
+			// segments recycling in and out don't all show a wolf at the
+			// exact same point in its stride/path — a fixed, cheap stand-in
+			// for per-instance randomness that still never needs reseeding
+			// on recycle (the offset lives on the slot, not the clock).
+			phaseOffset: Math.random() * Math.PI * 2,
+			// The model's own nose points toward local +X (measured
+			// directly off the loaded rig — see the dev history for this
+			// feature), so facing world +Z (this wolf's "forward" patrol
+			// direction) needs a -90° yaw, not +90°.
+			baseYaw: - Math.PI / 2,
+		} );
+
+	}
+
+	{
+
+		const { group: snakeGroup } = wrapHighwayGroundPatch( models[ 'wildlife-snake' ], HW_SNAKE_WIDTH );
+		const snakeX = - ( rockLineX - 4 );
+		const snakeZ = HW_SEGMENT_LENGTH * 0.6;
+		snakeGroup.position.set( snakeX, 0, snakeZ );
+		snakeGroup.rotation.y = 0.6;
+		group.add( snakeGroup );
+		wildlife.push( {
+			wrapper: snakeGroup,
+			// No rig to animate (see the model-sourcing notes on
+			// wildlife-snake.glb — a static sculpted coil, no skeleton at
+			// all), so it stays put and gets a believable idle instead of a
+			// walk cycle: a slow breathing pulse plus a watchful sway,
+			// rather than sliding a rigid mesh around, which would look
+			// like it was gliding on rails instead of actually alive.
+			idle: true,
+			// wrapHighwayGroundPatch already baked a width-normalizing
+			// scale into this group (targetWidth / raw size) — capturing
+			// it here rather than assuming 1 means the breathing pulse
+			// below multiplies relative to that, instead of clobbering it
+			// back down to an unscaled size.
+			baseScale: snakeGroup.scale.x,
+			baseYaw: 0.6,
+		} );
+
+	}
+
 	// Median concrete barrier. Split into 3 pieces per side rather than
 	// one continuous run the full HW_SEGMENT_LENGTH: a fixed "before" and
 	// "after" piece that are ALWAYS there (just normal continuous
@@ -4606,7 +4789,7 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	return { group, bodies, hideOnGap, showOnGap };
+	return { group, bodies, hideOnGap, showOnGap, wildlife };
 
 }
 
@@ -4948,17 +5131,17 @@ function buildHighwayWorld( scene, models, world ) {
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
 		const index = i - HW_TRAILING_SEGMENTS;
-		const { group, bodies, hideOnGap, showOnGap } = createHighwaySegmentProps( models, world );
+		const { group, bodies, hideOnGap, showOnGap, wildlife } = createHighwaySegmentProps( models, world );
 		group.position.z = index * HW_SEGMENT_LENGTH;
 		scene.add( group );
-		const slot = { group, index, bodies, hideOnGap, showOnGap };
+		const slot = { group, index, bodies, hideOnGap, showOnGap, wildlife };
 		repositionHighwaySegmentBodies( world, slot );
 		updateHighwayGapState( world, slot );
 		segments.push( slot );
 
 	}
 
-	return { segments, world, skyDome };
+	return { segments, world, skyDome, wildlifeClock: 0 };
 
 }
 
@@ -5032,6 +5215,55 @@ function updateHighwayRecycling( highwayState, playerZ ) {
 		slot.group.position.z = slot.index * HW_SEGMENT_LENGTH;
 		repositionHighwaySegmentBodies( highwayState.world, slot );
 		updateHighwayGapState( highwayState.world, slot );
+
+	}
+
+}
+
+const WOLF_UP_AXIS = new THREE.Vector3( 0, 1, 0 );
+const _wolfTargetQuat = new THREE.Quaternion();
+
+// Drives every recyclable slot's wolf/snake decorations (see
+// createHighwaySegmentProps) — one shared clock (highwayState.wildlifeClock)
+// advances by dt each call, and every instance reads it through its own
+// fixed per-slot phaseOffset, rather than each carrying an independent timer
+// that would need saving/restoring across recycling.
+function updateHighwayWildlife( highwayState, dt ) {
+
+	highwayState.wildlifeClock += dt;
+	const clock = highwayState.wildlifeClock;
+
+	for ( const slot of highwayState.segments ) {
+
+		for ( const w of slot.wildlife ) {
+
+			if ( w.idle ) {
+
+				// Snake: no rig to walk (see createHighwaySegmentProps'
+				// own comment on wildlife-snake.glb having no skeleton at
+				// all) — a slow breathing scale pulse plus a watchful
+				// sway reads as "alive and resting" without sliding the
+				// whole rigid coil around like it's on rails.
+				const t = clock * 0.8 + w.phaseOffset;
+				const breathe = 1 + 0.035 * Math.sin( t );
+				w.wrapper.scale.set( w.baseScale, w.baseScale * breathe, w.baseScale );
+				w.wrapper.rotation.y = w.baseYaw + 0.12 * Math.sin( t * 0.4 );
+				continue;
+
+			}
+
+			const walkClock = clock * 1.6 + w.phaseOffset;
+			const along = Math.sin( walkClock ); // -1..1 position along the patrol path
+			const vel = Math.cos( walkClock ); // sign = current direction of travel
+
+			w.wrapper.position.z = w.baseZ + w.pathRange * along;
+			w.walk( walkClock * 3 ); // leg-swing runs faster than the slow back-and-forth drift
+
+			const targetYaw = vel >= 0 ? w.baseYaw : w.baseYaw + Math.PI;
+			_wolfTargetQuat.setFromAxisAngle( WOLF_UP_AXIS, targetYaw );
+			w.wrapper.quaternion.slerp( _wolfTargetQuat, 1 - Math.exp( - 6 * dt ) );
+
+		}
 
 	}
 
@@ -5576,13 +5808,14 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			);
 
 			if ( highwayState ) updateHighwayRecycling( highwayState, vehicle.spherePos.z );
+			if ( highwayState ) updateHighwayWildlife( highwayState, dt );
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
 
 			// Keep the sky dome centered on the camera every frame (not
-			// just once at build time) — its own 300-unit radius easily
+			// just once at build time) — its own 100-unit radius easily
 			// dwarfs the camera's small offset from the car, but without
 			// this the endless highway's own Z-scrolling would eventually
 			// carry the camera far enough from the dome's fixed original
