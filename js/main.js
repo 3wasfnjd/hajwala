@@ -4702,6 +4702,30 @@ function buildHighwayWorld( scene, models, world ) {
 		restitution: 0.0,
 	} );
 
+	// Invisible boundary walls at the outer edge of the desert ground —
+	// drive far enough off-road (past ~140m of open dunes) and there was
+	// nothing stopping the car from crossing HW_GROUND_HALF_X and falling
+	// through empty space with no ground left under it ("نغلق السقوط
+	// للسيارة"). A plain STATIC box per side, same one-shot/never-
+	// recycled setup as the ground collider just above (Z is already
+	// effectively endless at this half-extent, matching HW_GROUND_HALF_Z,
+	// so there's no per-segment wall to maintain) — negligible cost for
+	// something the player will rarely if ever actually reach.
+	const HW_EDGE_WALL_INSET = 2; // sits just inside the visible ground plane's own edge, not flush with it
+	const HW_EDGE_WALL_HALF_HEIGHT = 5;
+	for ( const side of [ -1, 1 ] ) {
+
+		rigidBody.create( world, {
+			shape: box.create( { halfExtents: [ 1, HW_EDGE_WALL_HALF_HEIGHT, HW_GROUND_HALF_Z ] } ),
+			motionType: MotionType.STATIC,
+			objectLayer: world._OL_STATIC,
+			position: [ side * ( HW_GROUND_HALF_X - HW_EDGE_WALL_INSET ), HW_EDGE_WALL_HALF_HEIGHT, 0 ],
+			friction: 0.0,
+			restitution: 0.1,
+		} );
+
+	}
+
 	// Recyclable tree/streetlight prop slots — pre-built once, centered
 	// on the spawn point (index 0 sits at Z 0..HW_SEGMENT_LENGTH).
 	const segments = [];
