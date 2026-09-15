@@ -219,6 +219,7 @@ const modelNames = [
 	'track-straight', 'track-corner', 'track-bump', 'track-finish',
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 	'highway-tree', 'highway-streetlight', 'highway-ground-patch', 'highway-barrier',
+	'highway-rock-a', 'highway-rock-b', 'highway-rock-c', 'highway-rock-d',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -334,6 +335,33 @@ function applyCamryBodyColor( scene, hexColor, boost ) {
 
 }
 
+// Kenney's Nature Kit rock models (highway-rock-a/b/c/d — used to scatter
+// along الطريق's own road edges, see createHighwaySegmentProps) bake a
+// "grass" material as a flat, oddly saturated teal placeholder color —
+// meant to be re-skinned by whatever pipeline consumes it, not rendered
+// as-is. Recolored to the SAME warm tan the model's own "dirt" material
+// already uses (measured off its own baseColorFactor), so the whole rock
+// reads as one consistent sandy/rocky surface instead of a brown boulder
+// with a turquoise cap. Mutates the shared Material object once, right
+// after load — every later .clone() of this model shares that same fixed
+// material, exactly like every other model here (materials aren't deep-
+// cloned by Object3D.clone()).
+function fixHighwayRockColors( scene ) {
+
+	const dirtColor = new THREE.Color( 0.8862745, 0.5137255, 0.34117648 );
+	scene.traverse( ( child ) => {
+
+		if ( child.isMesh && child.material && child.material.name !== 'dirt' ) {
+
+			child.material.color.copy( dirtColor );
+			child.material.needsUpdate = true;
+
+		}
+
+	} );
+
+}
+
 const models = {};
 
 // Real tileable asphalt PBR surface (Quixel-style scan: basecolor/normal/
@@ -379,6 +407,8 @@ async function loadModels() {
 					applyCamryBodyColor( gltf.scene, CAMRY_BODY_COLOR, CAMRY_BODY_COLOR_BOOST );
 
 				}
+
+				if ( name.startsWith( 'highway-rock-' ) ) fixHighwayRockColors( gltf.scene );
 
 				const meshes = [];
 				gltf.scene.traverse( ( child ) => {
@@ -4434,6 +4464,36 @@ function createHighwaySegmentProps( models, world ) {
 			patch.position.set( side * patchX, 0, spec.z );
 			patch.rotation.y = spec.rot * side;
 			group.add( patch );
+
+		}
+
+	}
+
+	// Rock outcrops scattered past the dirt band — purely decorative (the
+	// invisible boundary wall further out at HW_GROUND_HALF_X, see
+	// buildHighwayWorld, is what actually stops the car from driving off
+	// the edge of the world; these just give that edge a natural-looking
+	// "the desert gets rocky/closes off here" visual instead of open sand
+	// forever). Four Kenney rock shapes (highway-rock-a/b/c/d — CC0, same
+	// source as the rest of this project's original assets) at varied X/Z/
+	// width/rotation so the line reads as scattered outcrops rather than a
+	// repeating fence — same "fixed per-slot spec, no per-frame
+	// randomization" approach as the ground-clutter patches just above.
+	const rockSpecs = [
+		{ key: 'highway-rock-a', x: 24, z: HW_SEGMENT_LENGTH * 0.05, width: 3.2, rot: 0.4 },
+		{ key: 'highway-rock-c', x: 30, z: HW_SEGMENT_LENGTH * 0.28, width: 2.6, rot: -0.6 },
+		{ key: 'highway-rock-b', x: 21, z: HW_SEGMENT_LENGTH * 0.52, width: 4, rot: 1.1 },
+		{ key: 'highway-rock-d', x: 33, z: HW_SEGMENT_LENGTH * 0.72, width: 3.6, rot: -0.2 },
+		{ key: 'highway-rock-a', x: 26, z: HW_SEGMENT_LENGTH * 0.9, width: 2.2, rot: 0.9 },
+	];
+	for ( const side of [ -1, 1 ] ) {
+
+		for ( const spec of rockSpecs ) {
+
+			const rock = wrapHighwayGroundPatch( models[ spec.key ], spec.width );
+			rock.position.set( side * spec.x, 0, spec.z );
+			rock.rotation.y = spec.rot * side;
+			group.add( rock );
 
 		}
 
