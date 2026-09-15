@@ -5197,7 +5197,16 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			}
 
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
-			speedometer.update( Math.abs( vehicle.linearSpeed / MAX_SPEED ), vehicle.handbrake );
+			// vehicle.maxSpeedMultiplier (highway mode's 1.4x boost to the
+			// real top speed — see its own comment) needs to be divided
+			// back out here too, or the needle hits its own end stop well
+			// before the car's actual new top speed and just sits pinned
+			// there for the rest of the acceleration curve — reported as
+			// the speed increase not being felt at all, since the needle
+			// was the only feedback and it appeared to cap at the same
+			// old point either way. 1 at the default multiplier (every
+			// other mode) — an exact no-op.
+			speedometer.update( Math.abs( vehicle.linearSpeed / ( MAX_SPEED * vehicle.maxSpeedMultiplier ) ), vehicle.handbrake );
 			if ( navCompass ) navCompass.update( vehicle.container.rotation.y );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {

@@ -417,7 +417,15 @@ export class Vehicle {
 		this.updateBody( dt );
 		this.updateWheels( dt );
 
-		this.driftIntensity = Math.abs( this.linearSpeed - this.acceleration ) +
+		// Same maxSpeedMultiplier normalization as updateBody()'s pitch/roll
+		// above (a no-op at the default multiplier of 1) — otherwise
+		// highway mode's faster real top speed would inflate driftIntensity
+		// during perfectly ordinary driving there, over-triggering
+		// Audio.js's "hard drift only" skid-sound gate.
+		const driftSpeedNorm = this.linearSpeed / Math.max( this.maxSpeedMultiplier, 0.0001 );
+		const driftAccelNorm = this.acceleration / Math.max( this.maxSpeedMultiplier, 0.0001 );
+
+		this.driftIntensity = Math.abs( driftSpeedNorm - driftAccelNorm ) +
 			( this.bodyNode ? Math.abs( this.bodyNode.rotation.z ) * 2 : 0 ) +
 			( this.handbrake ? 0.7 : 0 ) +
 			// Direct cornering severity: steering input × current speed.
@@ -426,7 +434,7 @@ export class Vehicle {
 			// climbed high enough on its own during ordinary hard
 			// cornering (as opposed to a full handbrake turn) to cross
 			// Audio.js's skid threshold. This responds immediately.
-			Math.abs( this.inputX ) * Math.abs( this.linearSpeed ) * 0.6;
+			Math.abs( this.inputX ) * Math.abs( driftSpeedNorm ) * 0.6;
 
 	}
 
@@ -445,15 +453,26 @@ export class Vehicle {
 
 		if ( ! this.bodyNode ) return;
 
+		// Normalized back to the original ~0..MAX_SPEED range this
+		// pitch/roll tuning was calibrated against — maxSpeedMultiplier
+		// (highway mode's 1.4x, boosting the real top speed) otherwise
+		// inflates these raw linearSpeed-driven tilts well past what
+		// they were tuned for, since neither formula below is itself
+		// speed-normalized. Reported as the body "rising and falling"/
+		// losing its balance while just driving straight — a no-op at
+		// the default multiplier of 1 (every other mode).
+		const speedNorm = this.linearSpeed / Math.max( this.maxSpeedMultiplier, 0.0001 );
+		const accelNorm = this.acceleration / Math.max( this.maxSpeedMultiplier, 0.0001 );
+
 		this.bodyNode.rotation.x = lerpAngle(
 			this.bodyNode.rotation.x,
-			-( this.linearSpeed - this.acceleration ) / 6,
+			-( speedNorm - accelNorm ) / 6,
 			dt * 10
 		);
 
 		this.bodyNode.rotation.z = lerpAngle(
 			this.bodyNode.rotation.z,
-			-( this.inputX / 5 ) * this.linearSpeed,
+			-( this.inputX / 5 ) * speedNorm,
 			dt * 5
 		);
 
