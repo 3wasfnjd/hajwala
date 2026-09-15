@@ -245,10 +245,20 @@ export class Vehicle {
 
 		if ( controlsInput.touchActive && ( this.inputX !== 0 || this.inputZ !== 0 ) ) {
 
-			// Touch: joystick defines world-space direction, auto-gas
+			// Touch: joystick defines world-space direction, auto-gas.
+			// Handbrake sharpens the turn-in rate here too — same "rear
+			// tires lose grip, turns snap around faster" arcade feel the
+			// keyboard/gamepad branch below gets via its turnMultiplier
+			// (4 -> 6.5), just expressed as a faster slerp toward the
+			// joystick's target facing instead of an angular-speed target
+			// (touch steering has no keyboard-style angularSpeed here to
+			// scale). Previously the touch badge only scrubbed speed and
+			// fed driftIntensity — holding it had no effect on how the car
+			// actually turned, unlike keyboard's handbrake-turn.
 			const targetAngle = Math.atan2( this.inputX, this.inputZ );
 			_quat.setFromAxisAngle( _up, targetAngle );
-			this.container.quaternion.slerp( _quat, 1 - Math.exp( - 3 * dt ) );
+			const touchTurnRate = this.handbrake ? 6 : 3;
+			this.container.quaternion.slerp( _quat, 1 - Math.exp( - touchTurnRate * dt ) );
 
 			_forward.set( 0, 0, 1 ).applyQuaternion( this.container.quaternion );
 			const cross = _forward.x * this.inputZ - _forward.z * this.inputX;
