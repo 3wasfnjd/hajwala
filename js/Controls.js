@@ -54,6 +54,19 @@ export class Controls {
 
 		steerZone.addEventListener( 'pointerdown', ( e ) => {
 
+			// Any on-screen HUD chrome (the touch-button dock, the
+			// speedometer's handbrake badge, the nav compass, ...) marks
+			// itself with .game-hud so a tap on it can never also be read
+			// as a steering touch here. This zone and that chrome are DOM
+			// siblings, not ancestor/descendant, so a button's own
+			// stopPropagation() only stops bubbling up shared ancestors —
+			// it can't stop this zone's own independently-attached
+			// listener from firing too if, on some browser/device,
+			// hit-testing ever resolves a tap to both layers (reported:
+			// pressing an on-screen button also steered/drove the car).
+			// Checking the actual target here is a second, explicit guard
+			// that doesn't depend on z-index/stacking alone.
+			if ( e.target.closest( '.game-hud' ) ) return;
 			if ( this.steerPointerId !== null ) return;
 			steerZone.setPointerCapture( e.pointerId );
 			this.steerPointerId = e.pointerId;

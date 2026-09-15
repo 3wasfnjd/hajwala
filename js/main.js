@@ -3161,7 +3161,7 @@ const SPEEDOMETER_MAX_KMH = 220;
 // scale (a 60° gap at the bottom, like a real speedometer's needle-pivot
 // zone) instead of the old plain full-circle ring, same purple/blue glow
 // already used everywhere else in this game's UI (menus, buttons).
-function setupSpeedometer() {
+function setupSpeedometer( touchState ) {
 
 	const style = document.createElement( 'style' );
 	style.textContent = `
@@ -3186,18 +3186,22 @@ function setupSpeedometer() {
 			text-anchor: middle; dominant-baseline: middle;
 		}
 		/* Handbrake badge — same spot/style as the reference's traction-control
-		   circle, overlapping the dial's own bottom-right rim. */
+		   circle, overlapping the dial's own bottom-right rim. This is also
+		   the actual touch/click target for engaging the handbrake — moved
+		   here (off the icon dock) per a reference image showing it
+		   belongs "مع الطبلون" (with the dashboard), not with the dock's
+		   other icons. */
 		#hw-speedo-hb {
 			position: absolute; right: -6px; bottom: 2px; width: 46px; height: 46px; border-radius: 50%;
 			background: radial-gradient(circle at 35% 30%, #3a3a3f, #16161a 70%);
 			border: 2px solid #555; display: flex; align-items: center; justify-content: center;
 			box-shadow: 0 3px 10px rgba(0,0,0,0.5);
 			transition: box-shadow 0.15s;
+			touch-action: manipulation; cursor: pointer;
 		}
-		#hw-speedo-hb svg { width: 26px; height: 26px; }
-		#hw-speedo-hb .hw-hb-icon { stroke: #666; fill: none; stroke-width: 2; stroke-linecap: round; transition: stroke 0.15s; }
-		#hw-speedo-hb.active { box-shadow: 0 0 12px 2px rgba(224,72,60,0.7), 0 3px 10px rgba(0,0,0,0.5); }
-		#hw-speedo-hb.active .hw-hb-icon { stroke: #e0483c; }
+		#hw-speedo-hb img { width: 28px; height: 28px; object-fit: contain; filter: brightness(0.85); transition: filter 0.15s; pointer-events: none; }
+		#hw-speedo-hb.active { box-shadow: 0 0 14px 3px rgba(224,72,60,0.75), 0 3px 10px rgba(0,0,0,0.5); }
+		#hw-speedo-hb.active img { filter: brightness(1.3) drop-shadow(0 0 3px #e0483c); }
 	`;
 	document.head.appendChild( style );
 
@@ -3252,6 +3256,7 @@ function setupSpeedometer() {
 
 	const wrap = document.createElement( 'div' );
 	wrap.id = 'hw-speedo';
+	wrap.className = 'game-hud';
 	wrap.innerHTML = `
 		<svg viewBox="0 0 168 168">
 			<defs>
@@ -3277,14 +3282,8 @@ function setupSpeedometer() {
 				<circle cx="${ CX }" cy="${ CY }" r="7" fill="url(#hw-speedo-bezel)" />
 			</g>
 		</svg>
-		<div id="hw-speedo-hb">
-			<svg viewBox="0 0 24 24">
-				<path class="hw-hb-icon" d="M5 17 Q7 12 5 7" />
-				<path class="hw-hb-icon" d="M9 17 Q11 12 9 7" />
-				<rect class="hw-hb-icon" x="10" y="9" width="10" height="7" rx="1.5" />
-				<circle class="hw-hb-icon" cx="12.5" cy="18" r="1.6" />
-				<circle class="hw-hb-icon" cx="18" cy="18" r="1.6" />
-			</svg>
+		<div id="hw-speedo-hb" class="game-hud">
+			<img src="images/icon-handbrake.png" alt="" />
 		</div>
 	`;
 	document.body.appendChild( wrap );
@@ -3292,6 +3291,35 @@ function setupSpeedometer() {
 	const needlePivot = wrap.querySelector( '#hw-speedo-needle-pivot' );
 	const needleEl = wrap.querySelector( '.hw-speedo-needle' );
 	const hbBadge = wrap.querySelector( '#hw-speedo-hb' );
+
+	// Handbrake: hold-not-tap, same pattern the dock's touch buttons use
+	// elsewhere in this file — engaged only while actually pressed,
+	// released the instant the finger/pointer lifts, slides off, or gets
+	// interrupted. preventDefault + stopPropagation (and the shared
+	// .game-hud class Controls.js's steering zone explicitly ignores) so
+	// pressing this badge can never also register as a steering touch.
+	if ( touchState ) {
+
+		hbBadge.addEventListener( 'pointerdown', ( e ) => {
+
+			e.preventDefault();
+			e.stopPropagation();
+			touchState.handbrakeHeld = true;
+
+		} );
+		[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
+
+			hbBadge.addEventListener( evt, ( e ) => {
+
+				e.preventDefault();
+				e.stopPropagation();
+				touchState.handbrakeHeld = false;
+
+			} );
+
+		} );
+
+	}
 
 	return {
 
@@ -3461,6 +3489,7 @@ function setupNavCompass() {
 
 	const wrap = document.createElement( 'div' );
 	wrap.id = 'hw-nav';
+	wrap.className = 'game-hud';
 	wrap.innerHTML = `
 		<svg viewBox="0 0 64 64">
 			<circle class="hw-nav-face" cx="32" cy="32" r="30" />
@@ -3514,8 +3543,8 @@ function setupTouchUI( vehicleLights ) {
 	style.textContent = `
 		#hw-touch-dock {
 			position: fixed; left: 14px; top: 70px; z-index: 30;
-			display: flex; flex-direction: row; gap: 8px;
-			padding: 8px 10px; border-radius: 26px;
+			display: flex; flex-direction: row; gap: 6px;
+			padding: 8px 8px; border-radius: 26px;
 			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
 			border: 1px solid rgba(139,95,191,0.35);
 			backdrop-filter: blur(6px);
@@ -3539,6 +3568,7 @@ function setupTouchUI( vehicleLights ) {
 
 	const wrap = document.createElement( 'div' );
 	wrap.id = 'hw-touch-dock';
+	wrap.className = 'game-hud';
 
 	function makeTapButton( icon, label ) {
 
@@ -3552,15 +3582,6 @@ function setupTouchUI( vehicleLights ) {
 	const headlightBtn = makeTapButton( '💡', 'الأضواء' );
 	const hazardBtn = makeTapButton( '⚠️', 'الطوارئ' );
 	const highBeamBtn = makeTapButton( '🔆', 'عالية' );
-	// Touch had no way to trigger the handbrake at all until now — only
-	// Controls.js's own keyboard check ('B' key) and AR's dedicated
-	// on-screen button fed it, so it silently never worked on a
-	// touch-only phone (reported: "تأكد من الهاند بريك لا يعمل").
-	// Icon is a real image (user-supplied) rather than an emoji, unlike
-	// every other button here — makeTapButton()'s `icon` param is just
-	// dropped into innerHTML as-is, so a plain <img> tag works the same
-	// way a raw emoji character would.
-	const handbrakeBtn = makeTapButton( '<img src="images/icon-handbrake.png" alt="" />', 'هاندبريك' );
 
 	// Back to the main menu — added alongside the rest of this dock's
 	// buttons per feedback that WEB mode (both track and free-roam, since
@@ -3616,31 +3637,10 @@ function setupTouchUI( vehicleLights ) {
 
 	} );
 
-	// Handbrake: same hold-not-tap pattern as high beam above — engaged
-	// only while actually held down, released the instant the finger
-	// lifts (or slides off/gets interrupted).
-	handbrakeBtn.addEventListener( 'pointerdown', ( e ) => {
-
-		e.stopPropagation();
-		touchState.handbrakeHeld = true;
-
-	} );
-	[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
-
-		handbrakeBtn.addEventListener( evt, ( e ) => {
-
-			e.stopPropagation();
-			touchState.handbrakeHeld = false;
-
-		} );
-
-	} );
-
 	wrap.appendChild( homeBtn );
 	wrap.appendChild( headlightBtn );
 	wrap.appendChild( hazardBtn );
 	wrap.appendChild( highBeamBtn );
-	wrap.appendChild( handbrakeBtn );
 	document.body.appendChild( wrap );
 
 	return touchState;
@@ -4440,10 +4440,20 @@ function createHighwaySegmentProps( models, world ) {
 	const EDGE_OVERLAP = 0.6;
 	const effGapStart = gapStart + EDGE_OVERLAP;
 	const effGapEnd = gapEnd - EDGE_OVERLAP;
+	// The SAME tapered-end problem exists at the other two ends of these
+	// pieces too — where the "before" piece meets Z=0 and the "after"
+	// piece meets Z=HW_SEGMENT_LENGTH, i.e. every ordinary recycled-slot
+	// seam, not just the U-turn gap (reported after the gap fix above:
+	// "الفجوة... اللي داخل الجزيرة" — a seam visible constantly, on every
+	// segment boundary, far more often than only at U-turns). Fixed the
+	// same way: overlap each piece past the slot boundary into the
+	// neighboring slot's own space, where the next/previous segment's own
+	// barrier piece is doing the identical overlap back — two tapered
+	// ends overlapping in a straight line fully cover each other.
 	const barrierPieces = [
-		{ zStart: 0, zEnd: effGapStart, isGapPiece: false },
+		{ zStart: -EDGE_OVERLAP, zEnd: effGapStart, isGapPiece: false },
 		{ zStart: gapStart, zEnd: gapEnd, isGapPiece: true },
-		{ zStart: effGapEnd, zEnd: HW_SEGMENT_LENGTH, isGapPiece: false },
+		{ zStart: effGapEnd, zEnd: HW_SEGMENT_LENGTH + EDGE_OVERLAP, isGapPiece: false },
 	];
 	for ( const side of [ -1, 1 ] ) {
 
@@ -5102,7 +5112,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
 	setupMusicToggle();
-	const speedometer = setupSpeedometer();
+	const speedometer = setupSpeedometer( touchState );
 	const navCompass = highway ? setupNavCompass() : null;
 
 	const _forward = new THREE.Vector3();
