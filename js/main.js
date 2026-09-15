@@ -1425,21 +1425,21 @@ function createSandTexture() {
 	const canvas = document.createElement( 'canvas' );
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext( '2d' );
-	ctx.fillStyle = '#c9a877';
+	ctx.fillStyle = '#8a6d47';
 	ctx.fillRect( 0, 0, size, size );
 
 	for ( let i = 0; i < 2200; i ++ ) {
 
 		const x = Math.random() * size, y = Math.random() * size;
 		const v = Math.random();
-		const shade = v < 0.5 ? `rgba(150,120,80,${ 0.08 + Math.random() * 0.12 })` : `rgba(230,205,160,${ 0.08 + Math.random() * 0.15 })`;
+		const shade = v < 0.5 ? `rgba(90,68,42,${ 0.08 + Math.random() * 0.12 })` : `rgba(160,132,90,${ 0.08 + Math.random() * 0.15 })`;
 		ctx.fillStyle = shade;
 		ctx.fillRect( x, y, 1.6, 1.6 );
 
 	}
 
 	// Faint wind-ripple streaks
-	ctx.strokeStyle = 'rgba(120,95,60,0.08)';
+	ctx.strokeStyle = 'rgba(70,52,32,0.1)';
 	ctx.lineWidth = 2;
 	for ( let i = 0; i < 18; i ++ ) {
 
