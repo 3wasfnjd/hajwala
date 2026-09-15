@@ -3528,6 +3528,7 @@ function setupTouchUI( vehicleLights ) {
 			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
 		}
 		#hw-touch-dock .hw-btn-icon { font-size: 19px; line-height: 1; }
+		#hw-touch-dock .hw-btn-icon img { width: 20px; height: 20px; object-fit: contain; display: block; }
 		#hw-touch-dock .hw-btn-label { font: 600 8.5px system-ui, sans-serif; color: rgba(255,255,255,0.85); line-height: 1; }
 		#hw-touch-dock button:active {
 			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
@@ -3555,7 +3556,11 @@ function setupTouchUI( vehicleLights ) {
 	// Controls.js's own keyboard check ('B' key) and AR's dedicated
 	// on-screen button fed it, so it silently never worked on a
 	// touch-only phone (reported: "تأكد من الهاند بريك لا يعمل").
-	const handbrakeBtn = makeTapButton( '🅿️', 'هاندبريك' );
+	// Icon is a real image (user-supplied) rather than an emoji, unlike
+	// every other button here — makeTapButton()'s `icon` param is just
+	// dropped into innerHTML as-is, so a plain <img> tag works the same
+	// way a raw emoji character would.
+	const handbrakeBtn = makeTapButton( '<img src="images/icon-handbrake.png" alt="" />', 'هاندبريك' );
 
 	// Back to the main menu — added alongside the rest of this dock's
 	// buttons per feedback that WEB mode (both track and free-roam, since
