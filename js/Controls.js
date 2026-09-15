@@ -39,9 +39,17 @@ export class Controls {
 		css.textContent = `
 			.touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
 			.steer-zone {
-				position: fixed; left: 0; bottom: 0; width: 190px; height: 190px;
+				/* left/bottom start a few px off the literal screen edge —
+				   not flush at 0 — since a hit-zone touching the true edge
+				   sits right in iOS/Android's own edge-swipe (back/system
+				   gesture nav) hot zone, which some browsers still steal
+				   the touch for even with touch-action:none set here; that
+				   swallows the touch before any pointerup/pointercancel/
+				   lostpointercapture ever reaches the page, wedging
+				   steering "stuck" with no event left to recover from. */
+				position: fixed; left: 10px; bottom: 10px; width: 180px; height: 180px;
 				pointer-events: auto; touch-action: none;
-				display: flex; align-items: flex-end; justify-content: flex-start; padding: 22px;
+				display: flex; align-items: flex-end; justify-content: flex-start; padding: 20px;
 			}
 			.steer-base { position: relative; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.25); transition: background 0.15s, border-color 0.15s; }
 			.steer-base.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.4); }
@@ -118,15 +126,21 @@ export class Controls {
 
 		} );
 
-		const endSteer = ( e ) => {
+		const resetSteer = () => {
 
-			if ( e.pointerId !== this.steerPointerId ) return;
 			this.steerPointerId = null;
 			this.touchActive = false;
 			this.touchDirX = 0;
 			this.touchDirY = 0;
 			knob.style.transform = '';
 			base.classList.remove( 'active' );
+
+		};
+
+		const endSteer = ( e ) => {
+
+			if ( e.pointerId !== this.steerPointerId ) return;
+			resetSteer();
 
 		};
 
@@ -145,6 +159,20 @@ export class Controls {
 		// including cases pointerup/pointercancel themselves don't cover,
 		// so it's a reliable backstop regardless of the exact cause.
 		steerZone.addEventListener( 'lostpointercapture', endSteer );
+
+		// Second, unconditional safety net: whatever swallows a touch's
+		// end event outright (an OS edge-swipe gesture stealing it before
+		// the browser ever dispatches pointerup/cancel/lostpointercapture,
+		// a system overlay, switching apps mid-drag) almost always also
+		// takes focus away from the page — so force-clear steering the
+		// instant that happens, rather than only reacting to pointer
+		// events that might themselves have been the ones dropped.
+		window.addEventListener( 'blur', resetSteer );
+		document.addEventListener( 'visibilitychange', () => {
+
+			if ( document.hidden ) resetSteer();
+
+		} );
 
 	}
 

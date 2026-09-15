@@ -3324,6 +3324,20 @@ function setupSpeedometer( touchState, flushCorner = false ) {
 
 		} );
 
+		// Same unconditional safety net as Controls.js's steering zone —
+		// whatever swallows this touch's own end event outright (an OS
+		// edge-swipe gesture, a system overlay, switching apps mid-press)
+		// almost always also takes focus away from the page, so force-
+		// release the handbrake the instant that happens rather than
+		// leaving it stuck "held" (continuously scrubbing speed and
+		// sharpening every turn) for the rest of the session.
+		window.addEventListener( 'blur', () => { touchState.handbrakeHeld = false; } );
+		document.addEventListener( 'visibilitychange', () => {
+
+			if ( document.hidden ) touchState.handbrakeHeld = false;
+
+		} );
+
 	}
 
 	return {
