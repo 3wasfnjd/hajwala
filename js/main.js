@@ -4395,9 +4395,18 @@ function createHighwaySegmentProps( models, world ) {
 			color: 0xffe0a0, transparent: true, depthWrite: false,
 			blending: THREE.AdditiveBlending,
 		} ) );
-		lampGlow.position.set( x + side * 1.7, HW_PROP_HEIGHT * 0.93, lightZ );
+		const glowY = HW_PROP_HEIGHT * 0.93;
+		const glowX = x + side * 1.7;
+		lampGlow.position.set( glowX, glowY, lightZ );
 		lampGlow.scale.set( 1.4, 1.4, 1 );
 		group.add( lampGlow );
+		// Being a sibling of `light` (not its child — see the comment
+		// above), hiding the pole on a U-turn segment never hid this on
+		// its own: reported as a lamp glow left floating above the gap
+		// with no pole under it anymore. No physics body to move (body:
+		// null — see updateHighwayGapState's own guard for this), just
+		// toggle .visible along with the pole it belongs to.
+		hideOnGap.push( { visual: lampGlow, body: null, localX: glowX, localY: glowY, localZ: lightZ } );
 
 	}
 
@@ -4929,7 +4938,10 @@ function updateHighwayGapState( world, slot ) {
 	for ( const b of slot.hideOnGap ) {
 
 		b.visual.visible = ! isGap;
-		rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
+		// b.body is null for purely-visual entries (the streetlight's own
+		// lamp-glow sprite — no collider to move, just toggle .visible
+		// above) rather than every entry needing a real physics body.
+		if ( b.body ) rigidBody.setPosition( world, b.body, [ b.localX, isGap ? -500 : b.localY, z + b.localZ ], true );
 
 	}
 	for ( const b of slot.showOnGap ) {
