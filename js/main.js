@@ -381,19 +381,6 @@ let highwayAsphaltColorMap = null; // same basecolor.jpg as highwayAsphaltImg, l
 let highwayAsphaltNormalMap = null;
 let highwayAsphaltRoughnessMap = null;
 
-// Sky background for الطريق mode, built from the same reference screenshot
-// used for the HUD/camera reference earlier ("استخدم نفس الصورة" — use
-// that same picture, this time for the sky instead of the road). A raw
-// crop of it couldn't be used directly: the only HUD-free patch in that
-// screenshot is a thin ~72px sliver near the horizon, and naively
-// stretching that tall to fill a sky-sized image turned its faint cloud
-// texture into ugly vertical streaks. Instead: a plain vertical gradient
-// (colors sampled from that same patch) fills most of the frame, with the
-// actual photo band (mirror-tiled for width, only mildly rescaled
-// vertically to avoid the streaking) feathered in near the bottom, where
-// clouds are already most visible from a low chase camera anyway.
-let highwaySkyTexture = null;
-
 async function loadModels() {
 
 	const promises = modelNames.map( ( name ) =>
@@ -531,9 +518,6 @@ async function loadModels() {
 
 	highwayAsphaltColorMap = asphaltTextureLoader.load( 'images/highway-asphalt.jpg' );
 	highwayAsphaltColorMap.colorSpace = THREE.SRGBColorSpace;
-
-	highwaySkyTexture = asphaltTextureLoader.load( 'images/highway-sky.jpg' );
-	highwaySkyTexture.colorSpace = THREE.SRGBColorSpace;
 
 	await Promise.all( promises );
 
@@ -4645,15 +4629,120 @@ function createHighwaySegmentProps( models, world ) {
 
 }
 
+// Warm hazy desert sky — golden-hour sun with a soft glow, wispy
+// horizontal clouds, a gradient from dusty blue at the zenith down to a
+// warm sandy haze at the horizon (per a reference painting the user
+// supplied). Replaces the earlier flat highway-sky.jpg background: that
+// was a real photo, but low-resolution/blurry with visible tiling
+// artifacts, AND — being a plain 2D `scene.background` texture — never
+// actually rotated as the camera turned, reading as a sky frozen in
+// place through every corner. This is real geometry instead: a huge
+// inverted sphere textured with this canvas gradient, re-centered on the
+// camera every frame (see its repositioning next to cam.update() in the
+// frame loop) so it always surrounds the viewer and correctly pans with
+// every turn, like an actual sky would.
+function createHighwaySkyDome() {
+
+	const w = 1024, h = 512;
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+
+	// v=0 (canvas top) maps to the sphere's own top (straight up/zenith),
+	// v=1 (canvas bottom) to its equator (the horizon, roughly level with
+	// the camera) — see the SphereGeometry's own phiLength/thetaLength
+	// below, which only builds the upper half, so the horizon band never
+	// needs to reach all the way to a "ground" pole.
+	const grad = ctx.createLinearGradient( 0, 0, 0, h );
+	grad.addColorStop( 0, '#5c7391' );
+	grad.addColorStop( 0.4, '#8fa0af' );
+	grad.addColorStop( 0.68, '#cdc3a8' );
+	grad.addColorStop( 0.86, '#eaddb8' );
+	grad.addColorStop( 1, '#f2e6c4' );
+	ctx.fillStyle = grad;
+	ctx.fillRect( 0, 0, w, h );
+
+	// Soft wispy clouds — short, low-opacity horizontal streaks, denser
+	// and more stretched near the horizon (perspective foreshortening),
+	// sparser and rounder higher up. Fixed pseudo-random layout (not
+	// re-rolled — this canvas is generated once) so the sky never pops
+	// between mode restarts.
+	let seed = 1337;
+	const rand = () => {
+
+		seed = ( seed * 1103515245 + 12345 ) & 0x7fffffff;
+		return ( seed % 10000 ) / 10000;
+
+	};
+
+	for ( let i = 0; i < 55; i ++ ) {
+
+		const y = h * ( 0.15 + rand() * 0.55 );
+		const x = rand() * w;
+		const stretch = 1 + ( y / h ) * 3.5;
+		const cw = ( 30 + rand() * 70 ) * stretch;
+		const ch = ( 6 + rand() * 10 );
+		const alpha = 0.08 + rand() * 0.16;
+
+		ctx.save();
+		ctx.translate( x, y );
+		ctx.scale( 1, 0.5 );
+		const cloudGrad = ctx.createRadialGradient( 0, 0, 0, 0, 0, cw );
+		cloudGrad.addColorStop( 0, `rgba(255,250,235,${ alpha })` );
+		cloudGrad.addColorStop( 1, 'rgba(255,250,235,0)' );
+		ctx.fillStyle = cloudGrad;
+		ctx.beginPath();
+		ctx.ellipse( 0, 0, cw, ch * 2, 0, 0, Math.PI * 2 );
+		ctx.fill();
+		ctx.restore();
+
+	}
+
+	// Sun — bright core plus a wide soft glow, upper-left-ish (matching
+	// the reference) so it stays clear of dead-center where the horizon
+	// props/road already draw the eye.
+	const sunX = w * 0.27, sunY = h * 0.24;
+	const glow = ctx.createRadialGradient( sunX, sunY, 0, sunX, sunY, 230 );
+	glow.addColorStop( 0, 'rgba(255,252,232,0.95)' );
+	glow.addColorStop( 0.12, 'rgba(255,248,214,0.75)' );
+	glow.addColorStop( 0.4, 'rgba(255,236,180,0.22)' );
+	glow.addColorStop( 1, 'rgba(255,236,180,0)' );
+	ctx.fillStyle = glow;
+	ctx.fillRect( sunX - 230, sunY - 230, 460, 460 );
+	ctx.fillStyle = '#fffdf1';
+	ctx.beginPath();
+	ctx.arc( sunX, sunY, 26, 0, Math.PI * 2 );
+	ctx.fill();
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.colorSpace = THREE.SRGBColorSpace;
+
+	// Upper hemisphere only (thetaLength = PI/2) — plenty for a
+	// forward/rear chase camera that never tilts to look straight down,
+	// and halves the fill-rate cost of a full sphere for no visible loss.
+	const geo = new THREE.SphereGeometry( 300, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 );
+	const mat = new THREE.MeshBasicMaterial( { map: texture, side: THREE.BackSide, fog: false, depthWrite: false } );
+	const dome = new THREE.Mesh( geo, mat );
+	dome.renderOrder = -1;
+	return dome;
+
+}
+
 function buildHighwayWorld( scene, models, world ) {
 
-	// Real photo-based hazy sky (see highwaySkyTexture's own comment) in
-	// place of the flat sand-brown it started as, then the flat blue it
-	// briefly became. Fog color is picked to match the photo band's own
-	// horizon tone so the distance fade blends into it instead of showing
-	// a seam where geometry fog meets the background image.
-	scene.background = highwaySkyTexture || new THREE.Color( 0x8fc0dd );
-	scene.fog = new THREE.Fog( 0x84949a, 60, 260 );
+	// Sky dome (see createHighwaySkyDome's own comment) replaces the old
+	// flat photo-background approach entirely — scene.background stays a
+	// plain color now, just as a fallback behind/around the dome (e.g.
+	// visible for one frame before the dome's first repositioning) rather
+	// than doing any of the actual sky rendering itself.
+	// Fog color matches the sky gradient's own horizon tone (the warm
+	// sandy haze band) so the distance fade blends into it instead of
+	// showing a seam where geometry fog meets the dome.
+	scene.background = new THREE.Color( 0xead9b0 );
+	scene.fog = new THREE.Fog( 0xe4d3ab, 60, 260 );
+	const skyDome = createHighwaySkyDome();
+	scene.add( skyDome );
 
 	// Median strip — flush with the road, same real asphalt PBR set as
 	// the lanes (own cloned textures so its own, narrower width gets a
@@ -4825,7 +4914,7 @@ function buildHighwayWorld( scene, models, world ) {
 
 	}
 
-	return { segments, world };
+	return { segments, world, skyDome };
 
 }
 
@@ -5445,6 +5534,14 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
+
+			// Keep the sky dome centered on the camera every frame (not
+			// just once at build time) — its own 300-unit radius easily
+			// dwarfs the camera's small offset from the car, but without
+			// this the endless highway's own Z-scrolling would eventually
+			// carry the camera far enough from the dome's fixed original
+			// center to visibly clip through its wall.
+			if ( highwayState && highwayState.skyDome ) highwayState.skyDome.position.copy( cam.camera.position );
 
 			renderer.render( scene, cam.camera );
 
