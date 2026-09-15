@@ -3161,16 +3161,21 @@ const SPEEDOMETER_MAX_KMH = 220;
 // scale (a 60° gap at the bottom, like a real speedometer's needle-pivot
 // zone) instead of the old plain full-circle ring, same purple/blue glow
 // already used everywhere else in this game's UI (menus, buttons).
-function setupSpeedometer( touchState ) {
+function setupSpeedometer( touchState, flushCorner = false ) {
+
+	// bottom:60px clears the classic track mode's own "إنشاء مضمار جديد"
+	// corner link, which sits right at bottom:12px in the same corner —
+	// free-roam/الطريق hide that link entirely (see startNormalMode), so
+	// callers there pass flushCorner to drop the gauge (and the handbrake
+	// badge riding on it) all the way down to the screen's actual
+	// bottom-right corner instead, per feedback that the handbrake button
+	// should sit exactly there.
+	const speedoBottom = flushCorner ? 16 : 60;
 
 	const style = document.createElement( 'style' );
 	style.textContent = `
-		/* bottom:60px (not 16) clears the classic track mode's own
-		   "إنشاء مضمار جديد" corner link, which sits right at bottom:12px
-		   in the same corner — free-roam/الطريق hide that link entirely
-		   but this still reads fine sitting a bit higher there too. */
 		#hw-speedo {
-			position: fixed; right: 16px; bottom: 60px; z-index: 25; width: 168px; height: 168px;
+			position: fixed; right: 16px; bottom: ${ speedoBottom }px; z-index: 25; width: 168px; height: 168px;
 			filter: drop-shadow(0 6px 20px rgba(0,0,0,0.5));
 		}
 		#hw-speedo svg { width: 100%; height: 100%; overflow: visible; }
@@ -5122,7 +5127,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
 	setupMusicToggle();
-	const speedometer = setupSpeedometer( touchState );
+	const speedometer = setupSpeedometer( touchState, highway || freeRoam );
 	const navCompass = highway ? setupNavCompass() : null;
 
 	const _forward = new THREE.Vector3();

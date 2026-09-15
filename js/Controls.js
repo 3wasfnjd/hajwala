@@ -25,12 +25,27 @@ export class Controls {
 
 		if ( ! ( 'ontouchstart' in window ) ) return;
 
+		// Fixed joystick pinned to the bottom-left corner (per feedback:
+		// a permanent, always-visible control there, mirroring the
+		// handbrake badge's own fixed spot at the bottom-right) — this
+		// replaced an earlier "touch anywhere on screen" invisible zone
+		// where the base/knob appeared wherever the finger first landed.
+		// steer-zone is a fixed-size hit region at that same corner (a bit
+		// bigger than the visible base, for a comfortable thumb target);
+		// the base itself no longer moves — only the knob does, relative
+		// to the base's own fixed center — and stays visible at all times
+		// instead of only appearing while held.
 		const css = document.createElement( 'style' );
 		css.textContent = `
 			.touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
-			.steer-zone { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
-			.steer-base { position: absolute; width: 140px; height: 140px; margin: -70px 0 0 -70px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); display: none; }
-			.steer-knob { position: absolute; top: 50%; left: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; background: rgba(255,255,255,0.35); }
+			.steer-zone {
+				position: fixed; left: 0; bottom: 0; width: 190px; height: 190px;
+				pointer-events: auto; touch-action: none;
+				display: flex; align-items: flex-end; justify-content: flex-start; padding: 22px;
+			}
+			.steer-base { position: relative; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.25); transition: background 0.15s, border-color 0.15s; }
+			.steer-base.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.4); }
+			.steer-knob { position: absolute; top: 50%; left: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%; background: rgba(255,255,255,0.4); }
 		`;
 		document.head.appendChild( css );
 
@@ -70,14 +85,16 @@ export class Controls {
 			if ( this.steerPointerId !== null ) return;
 			steerZone.setPointerCapture( e.pointerId );
 			this.steerPointerId = e.pointerId;
-			this.steerStartX = e.clientX;
-			this.steerStartY = e.clientY;
+			// Anchored to the base's own fixed center (it no longer
+			// follows the finger) — pointer capture still lets the finger
+			// drag anywhere on screen afterward, same as before.
+			const rect = base.getBoundingClientRect();
+			this.steerStartX = rect.left + rect.width / 2;
+			this.steerStartY = rect.top + rect.height / 2;
 			this.touchActive = true;
 			this.touchDirX = 0;
 			this.touchDirY = 0;
-			base.style.left = `${ e.clientX }px`;
-			base.style.top = `${ e.clientY }px`;
-			base.style.display = 'block';
+			base.classList.add( 'active' );
 
 		} );
 
@@ -109,7 +126,7 @@ export class Controls {
 			this.touchDirX = 0;
 			this.touchDirY = 0;
 			knob.style.transform = '';
-			base.style.display = 'none';
+			base.classList.remove( 'active' );
 
 		};
 
