@@ -3542,30 +3542,32 @@ function setupTouchUI( vehicleLights ) {
 
 	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false, handbrakeHeld: false };
 
-	// Bigger pill-shaped buttons (icon + small label stacked), per a
-	// reference screenshot of a more polished HUD's side dock — same
-	// purple/blue press-state glow as before, just larger touch targets
-	// and each one now labeled instead of icon-only.
+	// Smaller pill-shaped buttons (icon + small label stacked), pulled up
+	// flush with the top of the screen — same row as the fullscreen
+	// toggle (left:14px, top:14px, 46px circle), so the dock starts just
+	// past it instead of overlapping (it used to sit stacked right below
+	// that button, at top:70px, per earlier feedback the whole row should
+	// sit higher and take up less room).
 	const style = document.createElement( 'style' );
 	style.textContent = `
 		#hw-touch-dock {
-			position: fixed; left: 14px; top: 70px; z-index: 30;
-			display: flex; flex-direction: row; gap: 6px;
-			padding: 8px 8px; border-radius: 26px;
+			position: fixed; left: 68px; top: 14px; z-index: 30;
+			display: flex; flex-direction: row; gap: 5px;
+			padding: 6px 6px; border-radius: 20px;
 			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
 			border: 1px solid rgba(139,95,191,0.35);
 			backdrop-filter: blur(6px);
 			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
 		}
 		#hw-touch-dock button {
-			width: 56px; height: 56px; border-radius: 16px; border: none; padding: 0;
+			width: 44px; height: 44px; border-radius: 13px; border: none; padding: 0;
 			background: rgba(255,255,255,0.06); color: #fff;
-			display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+			display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
 			touch-action: manipulation; transition: background 0.12s, transform 0.08s;
 		}
-		#hw-touch-dock .hw-btn-icon { font-size: 19px; line-height: 1; }
-		#hw-touch-dock .hw-btn-icon img { width: 20px; height: 20px; object-fit: contain; display: block; }
-		#hw-touch-dock .hw-btn-label { font: 600 8.5px system-ui, sans-serif; color: rgba(255,255,255,0.85); line-height: 1; }
+		#hw-touch-dock .hw-btn-icon { font-size: 15px; line-height: 1; }
+		#hw-touch-dock .hw-btn-icon img { width: 16px; height: 16px; object-fit: contain; display: block; }
+		#hw-touch-dock .hw-btn-label { font: 600 7px system-ui, sans-serif; color: rgba(255,255,255,0.85); line-height: 1; }
 		#hw-touch-dock button:active {
 			background: linear-gradient(135deg, #8B5FBF, #5B8CFF);
 			transform: scale(0.94);
