@@ -3438,6 +3438,66 @@ function setupMusicToggle() {
 
 }
 
+// ─── Fake navigation compass (الطريق only — see its call site) ────
+// A classic compass-rose widget: the ring (N/E/S/W) rotates opposite the
+// car's own heading so it reads as "pointing at world-fixed directions"
+// while a fixed arrow at the top always represents the car's own nose —
+// purely cosmetic ("نظام ملاحة وهمي... مو بالضرورة يحدد وجهة ويحسب
+// مسافة" — a fake nav system, no real destination/distance logic), no
+// waypoint, route, or distance calculation behind it.
+function setupNavCompass() {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-nav { position: fixed; right: 14px; top: 72px; z-index: 25; width: 64px; height: 64px; }
+		#hw-nav svg { width: 100%; height: 100%; overflow: visible; }
+		#hw-nav .hw-nav-face { fill: rgba(20,14,32,0.72); stroke: rgba(139,95,191,0.45); stroke-width: 2; }
+		#hw-nav .hw-nav-n { fill: #e0483c; font: 700 13px system-ui, sans-serif; text-anchor: middle; }
+		#hw-nav .hw-nav-dir { fill: rgba(255,255,255,0.55); font: 600 10px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
+		#hw-nav .hw-nav-tick { stroke: rgba(255,255,255,0.35); stroke-width: 1.5; }
+		#hw-nav .hw-nav-arrow { fill: #5B8CFF; filter: drop-shadow(0 0 3px rgba(91,140,255,0.7)); }
+	`;
+	document.head.appendChild( style );
+
+	const wrap = document.createElement( 'div' );
+	wrap.id = 'hw-nav';
+	wrap.innerHTML = `
+		<svg viewBox="0 0 64 64">
+			<circle class="hw-nav-face" cx="32" cy="32" r="30" />
+			<g id="hw-nav-ring">
+				<line class="hw-nav-tick" x1="32" y1="6" x2="32" y2="12" />
+				<line class="hw-nav-tick" x1="32" y1="52" x2="32" y2="58" />
+				<line class="hw-nav-tick" x1="6" y1="32" x2="12" y2="32" />
+				<line class="hw-nav-tick" x1="52" y1="32" x2="58" y2="32" />
+				<text class="hw-nav-n" x="32" y="19">N</text>
+				<text class="hw-nav-dir" x="45" y="32">E</text>
+				<text class="hw-nav-dir" x="32" y="47">S</text>
+				<text class="hw-nav-dir" x="19" y="32">W</text>
+			</g>
+			<polygon class="hw-nav-arrow" points="32,14 28,26 36,26" />
+		</svg>
+	`;
+	document.body.appendChild( wrap );
+
+	const ringEl = wrap.querySelector( '#hw-nav-ring' );
+
+	return {
+
+		// headingRad: the car's own current world-Y rotation (radians) —
+		// e.g. vehicle.container.rotation.y. Rotated the opposite way so
+		// the ring reads as staying world-fixed while the car (and the
+		// fixed arrow representing it) turns underneath it.
+		update( headingRad ) {
+
+			const deg = - headingRad * 180 / Math.PI;
+			ringEl.setAttribute( 'transform', `rotate(${ deg.toFixed( 1 ) } 32 32)` );
+
+		},
+
+	};
+
+}
+
 // ─── Touch controls dock (phones/tablets — no keyboard, no VR hands) ──
 // Controls.js already covers a full-screen invisible steering zone for
 // touch, so these buttons need a higher z-index to receive taps first.
@@ -3453,9 +3513,9 @@ function setupTouchUI( vehicleLights ) {
 	const style = document.createElement( 'style' );
 	style.textContent = `
 		#hw-touch-dock {
-			position: fixed; left: 14px; bottom: 14px; z-index: 30;
-			display: flex; flex-direction: column; gap: 10px;
-			padding: 12px 8px; border-radius: 26px;
+			position: fixed; left: 14px; bottom: 110px; z-index: 30;
+			display: flex; flex-direction: row; gap: 10px;
+			padding: 8px 12px; border-radius: 26px;
 			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
 			border: 1px solid rgba(139,95,191,0.35);
 			backdrop-filter: blur(6px);
@@ -3980,6 +4040,12 @@ const HW_ACTIVE_SEGMENTS = HW_TRAILING_SEGMENTS + HW_LEADING_SEGMENTS + 1;
 // startNormalMode's own vehicle.init() call sites.
 const HW_VEHICLE_SCALE = 2;
 const HW_SPHERE_RADIUS = 0.5 * HW_VEHICLE_SCALE;
+// A bigger car covering the same absolute distance per second reads as
+// slower (nothing to compare it against but a road/median also scaled up
+// to real-world size) — reported "تبدو بطيئة" after the 2x visual scale
+// above. Boosts actual linearSpeed (Vehicle.js's own maxSpeedMultiplier),
+// not just the speedometer's display number.
+const HW_MAX_SPEED_MULTIPLIER = 1.4;
 
 // Raised back up per feedback ("كبر الحاجز الخرساني") — 0.4 read as too
 // small once the vehicle itself grew to HW_VEHICLE_SCALE's 2x (final
@@ -4268,6 +4334,22 @@ function createHighwaySegmentProps( models, world ) {
 		if ( side < 0 ) light.rotation.y = Math.PI;
 		group.add( light );
 		addGapPoleCollider( light, x, lightZ, 0.16 );
+
+		// Lamp glow — purely visual ("شكل فقط", no real THREE.Light/road
+		// illumination, just makes the lamp head itself look lit). Added
+		// directly to `group` (not as a child of `light`) so its position
+		// is plain world-space units, not scaled again by wrapHighwayProp's
+		// own internal scale factor. Offset direction matches the arm's
+		// own world-space reach — same sign as `side`, since that's
+		// already which way the (possibly 180°-flipped) arm points.
+		const lampGlow = new THREE.Sprite( new THREE.SpriteMaterial( {
+			map: createGlowTexture( '255, 224, 160' ),
+			color: 0xffe0a0, transparent: true, depthWrite: false,
+			blending: THREE.AdditiveBlending,
+		} ) );
+		lampGlow.position.set( x + side * 1.7, HW_PROP_HEIGHT * 0.93, lightZ );
+		lampGlow.scale.set( 1.4, 1.4, 1 );
+		group.add( lampGlow );
 
 	}
 
@@ -4914,7 +4996,12 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	}
 
 	const vehicle = new Vehicle();
-	if ( highway ) vehicle.sphereRadius = HW_SPHERE_RADIUS;
+	if ( highway ) {
+
+		vehicle.sphereRadius = HW_SPHERE_RADIUS;
+		vehicle.maxSpeedMultiplier = HW_MAX_SPEED_MULTIPLIER;
+
+	}
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
 
@@ -4985,6 +5072,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	setupFullscreenToggle();
 	setupMusicToggle();
 	const speedometer = setupSpeedometer();
+	const navCompass = highway ? setupNavCompass() : null;
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -5110,6 +5198,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			updateVehicleLights( vehicleLights, dt, 1, vehicle.linearSpeed < -0.01 );
 			speedometer.update( Math.abs( vehicle.linearSpeed / MAX_SPEED ), vehicle.handbrake );
+			if ( navCompass ) navCompass.update( vehicle.container.rotation.y );
 
 			if ( raceState.phase === 'finished' && ! resultsShown ) {
 

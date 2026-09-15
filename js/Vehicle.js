@@ -80,6 +80,7 @@ export class Vehicle {
 		this.spherePos = new THREE.Vector3( 3.5, 0.5, 5 );
 		this.sphereVel = new THREE.Vector3();
 		this.sphereRadius = 0.5; // overridable — AR floating-track/arena use a scaled-down sphere to match a shrunk track
+		this.maxSpeedMultiplier = 1; // overridable — a visually bigger car (highway mode's 2x scale) reads as slower at the same absolute speed, so that mode boosts this to compensate
 		this.spawnPos = null;
 		this.spawnAngle = 0;
 
@@ -253,7 +254,7 @@ export class Vehicle {
 			const cross = _forward.x * this.inputZ - _forward.z * this.inputX;
 			this.inputX = THREE.MathUtils.clamp( - cross * 2, - 1, 1 );
 
-			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, MAX_SPEED, dt * 1.5 );
+			this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, MAX_SPEED * this.maxSpeedMultiplier, dt * 1.5 );
 
 		} else {
 
@@ -300,11 +301,11 @@ export class Vehicle {
 
 			} else if ( targetSpeed < 0 ) {
 
-				this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed * MAX_SPEED * REVERSE_SPEED_SCALE, dt * 2 );
+				this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed * MAX_SPEED * this.maxSpeedMultiplier * REVERSE_SPEED_SCALE, dt * 2 );
 
 			} else {
 
-				this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed * MAX_SPEED, dt * 1.5 );
+				this.linearSpeed = THREE.MathUtils.lerp( this.linearSpeed, targetSpeed * MAX_SPEED * this.maxSpeedMultiplier, dt * 1.5 );
 
 			}
 
