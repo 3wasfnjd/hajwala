@@ -5079,8 +5079,11 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const vehicleLights = addVehicleLights( vehicle, true ); // true: this is the player's own car — real hazard lights
 	// flagImage comes from the main menu's image picker (a data: URL, see
 	// createModeMenu) — falls back to the placeholder banner in Flag.js
-	// if the player didn't pick one.
-	const vehicleFlag = addVehicleFlag( vehicle, flagImage );
+	// if the player didn't pick one, EXCEPT in الطريق (highway) mode:
+	// there, no image chosen means no flag at all (skip creating/
+	// attaching it entirely) rather than showing that generic green
+	// placeholder banner — every other mode keeps the old fallback.
+	const vehicleFlag = ( highway && ! flagImage ) ? null : addVehicleFlag( vehicle, flagImage );
 
 	dirLight.target = vehicleGroup;
 
