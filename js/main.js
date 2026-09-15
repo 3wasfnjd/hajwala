@@ -4742,8 +4742,8 @@ function createHighwaySkyDome() {
 
 	};
 
-	drawDuneRidge( h * 0.90, h * 0.025, 'rgba(196,168,128,0.55)', 0 );
-	drawDuneRidge( h * 0.95, h * 0.035, 'rgba(150,118,82,0.75)', 4 );
+	drawDuneRidge( h * 0.95, h * 0.018, 'rgba(196,168,128,0.55)', 0 );
+	drawDuneRidge( h * 0.98, h * 0.025, 'rgba(150,118,82,0.75)', 4 );
 
 	const texture = new THREE.CanvasTexture( canvas );
 	texture.colorSpace = THREE.SRGBColorSpace;
@@ -4752,14 +4752,20 @@ function createHighwaySkyDome() {
 	// forward/rear chase camera that never tilts to look straight down,
 	// and halves the fill-rate cost of a full sphere for no visible loss.
 	// Radius must stay comfortably under the highway camera's own far
-	// clip plane (200 — see its `new Camera(...)` call) or the ENTIRE
-	// dome gets frustum-culled and never draws at all: reported as the
-	// sky rendering as a flat, gradient-less, sun-less yellow — that flat
-	// tone was just scene.background's own fallback color showing
-	// through, since every point on a 300-radius dome centered on the
-	// camera sits at exactly 300, past a 200 far plane. 150 leaves a
-	// healthy margin under it.
-	const geo = new THREE.SphereGeometry( 150, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 );
+	// clip plane (200 — see its `new Camera(...)` call): the FORWARD
+	// camera-space depth of a point on this dome (what the GPU's own
+	// hardware far-plane clipping actually tests, not straight-line
+	// distance) is radius*cos(angle from the view direction) — so at a
+	// 300 radius, anything within roughly the middle 55° of the view cone
+	// already sits past 200 in camera-space depth and gets clipped away
+	// by the GPU, even though a coarse bounding-sphere frustum check
+	// alone wouldn't flag the object as fully culled (reported as the
+	// sky rendering as a flat, gradient-less, sun-less yellow — just
+	// scene.background's own fallback color showing through where the
+	// dome should have been). 100 keeps that worst-case depth well under
+	// 200 even at a much wider angle than this camera's own FOV ever
+	// reaches, with margin to spare — a bounded box.
+	const geo = new THREE.SphereGeometry( 100, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 );
 	const mat = new THREE.MeshBasicMaterial( { map: texture, side: THREE.BackSide, fog: false, depthWrite: false } );
 	const dome = new THREE.Mesh( geo, mat );
 	dome.renderOrder = -1;
