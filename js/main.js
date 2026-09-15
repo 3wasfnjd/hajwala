@@ -3175,15 +3175,15 @@ const SPEEDOMETER_MAX_KMH = 220;
 // scale (a 60° gap at the bottom, like a real speedometer's needle-pivot
 // zone) instead of the old plain full-circle ring, same purple/blue glow
 // already used everywhere else in this game's UI (menus, buttons).
-function setupSpeedometer( touchState, flushCorner = false ) {
+function setupSpeedometer( flushCorner = false ) {
 
 	// bottom:60px clears the classic track mode's own "إنشاء مضمار جديد"
 	// corner link, which sits right at bottom:12px in the same corner —
 	// free-roam/الطريق hide that link entirely (see startNormalMode), so
 	// callers there pass flushCorner to drop the gauge (and the handbrake
 	// badge riding on it) all the way down to the screen's actual
-	// bottom-right corner instead, per feedback that the handbrake button
-	// should sit exactly there.
+	// bottom-right corner instead, per earlier feedback on where it
+	// should sit.
 	const speedoBottom = flushCorner ? 16 : 60;
 
 	const style = document.createElement( 'style' );
@@ -3204,19 +3204,16 @@ function setupSpeedometer( touchState, flushCorner = false ) {
 			fill: rgba(255,255,255,0.55); font: 600 11px system-ui, sans-serif;
 			text-anchor: middle; dominant-baseline: middle;
 		}
-		/* Handbrake badge — same spot/style as the reference's traction-control
-		   circle, overlapping the dial's own bottom-right rim. This is also
-		   the actual touch/click target for engaging the handbrake — moved
-		   here (off the icon dock) per a reference image showing it
-		   belongs "مع الطبلون" (with the dashboard), not with the dock's
-		   other icons. */
+		/* Handbrake badge — same spot/style as the reference's traction-
+		   control circle, overlapping the dial's own bottom-right rim.
+		   Passive indicator only (see the comment near hbBadge below) —
+		   not a touch/click target. */
 		#hw-speedo-hb {
 			position: absolute; right: -6px; bottom: 2px; width: 46px; height: 46px; border-radius: 50%;
 			background: radial-gradient(circle at 35% 30%, #3a3a3f, #16161a 70%);
 			border: 2px solid #555; display: flex; align-items: center; justify-content: center;
 			box-shadow: 0 3px 10px rgba(0,0,0,0.5);
 			transition: box-shadow 0.15s;
-			touch-action: manipulation; cursor: pointer;
 		}
 		#hw-speedo-hb img { width: 28px; height: 28px; object-fit: contain; filter: brightness(0.85); transition: filter 0.15s; pointer-events: none; }
 		#hw-speedo-hb.active { box-shadow: 0 0 14px 3px rgba(224,72,60,0.75), 0 3px 10px rgba(0,0,0,0.5); }
@@ -3311,48 +3308,13 @@ function setupSpeedometer( touchState, flushCorner = false ) {
 	const needleEl = wrap.querySelector( '.hw-speedo-needle' );
 	const hbBadge = wrap.querySelector( '#hw-speedo-hb' );
 
-	// Handbrake: hold-not-tap, same pattern the dock's touch buttons use
-	// elsewhere in this file — engaged only while actually pressed,
-	// released the instant the finger/pointer lifts, slides off, or gets
-	// interrupted. preventDefault + stopPropagation (and the shared
-	// .game-hud class Controls.js's steering zone explicitly ignores) so
-	// pressing this badge can never also register as a steering touch.
-	if ( touchState ) {
-
-		hbBadge.addEventListener( 'pointerdown', ( e ) => {
-
-			e.preventDefault();
-			e.stopPropagation();
-			touchState.handbrakeHeld = true;
-
-		} );
-		[ 'pointerup', 'pointerleave', 'pointercancel' ].forEach( ( evt ) => {
-
-			hbBadge.addEventListener( evt, ( e ) => {
-
-				e.preventDefault();
-				e.stopPropagation();
-				touchState.handbrakeHeld = false;
-
-			} );
-
-		} );
-
-		// Same unconditional safety net as Controls.js's steering zone —
-		// whatever swallows this touch's own end event outright (an OS
-		// edge-swipe gesture, a system overlay, switching apps mid-press)
-		// almost always also takes focus away from the page, so force-
-		// release the handbrake the instant that happens rather than
-		// leaving it stuck "held" (continuously scrubbing speed and
-		// sharpening every turn) for the rest of the session.
-		window.addEventListener( 'blur', () => { touchState.handbrakeHeld = false; } );
-		document.addEventListener( 'visibilitychange', () => {
-
-			if ( document.hidden ) touchState.handbrakeHeld = false;
-
-		} );
-
-	}
+	// This badge is a passive indicator only (lights up via .active when
+	// vehicle.handbrake is true, from keyboard's own 'B' key) — it is
+	// deliberately NOT a touch button. It briefly was, but that touch
+	// interaction kept causing steering to freeze up during real play
+	// (the extra simultaneous touch it added was implicated in a stuck-
+	// pointer-capture class of bug that several rounds of hardening never
+	// fully eliminated); removed per feedback rather than keep chasing it.
 
 	return {
 
@@ -3568,7 +3530,7 @@ function setupNavCompass() {
 
 function setupTouchUI( vehicleLights ) {
 
-	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false, handbrakeHeld: false };
+	if ( ! ( 'ontouchstart' in window ) ) return { highBeamHeld: false };
 
 	// Smaller pill-shaped buttons (icon + small label stacked), pulled up
 	// flush with the top of the screen — same row as the fullscreen
@@ -3656,7 +3618,7 @@ function setupTouchUI( vehicleLights ) {
 	// "off" and immediately canceled whatever this button had just
 	// turned on. The frame loop now combines both sources before calling
 	// setHighBeam() once.
-	const touchState = { highBeamHeld: false, handbrakeHeld: false };
+	const touchState = { highBeamHeld: false };
 	highBeamBtn.addEventListener( 'pointerdown', ( e ) => {
 
 		e.stopPropagation();
@@ -4676,9 +4638,18 @@ function createHighwaySkyDome() {
 
 	};
 
+	// y stays clear of the canvas top (v < ~0.35): that band maps to the
+	// sphere's own pole (theta=0, straight up), where a full 360° of U
+	// compresses into a single point in 3D — anything drawn there reads
+	// as badly smeared/warped from any angle actually close enough to
+	// look near-vertical, and at a wide FOV can even appear to repeat
+	// around the horizon-facing sides at once (reported as "two suns" —
+	// confirmed by rendering this dome from straight up: a single sun
+	// drawn up there really did appear to double, an artifact of the
+	// pole itself, not an actual second sun anywhere in the code).
 	for ( let i = 0; i < 55; i ++ ) {
 
-		const y = h * ( 0.15 + rand() * 0.55 );
+		const y = h * ( 0.38 + rand() * 0.48 );
 		const x = rand() * w;
 		const stretch = 1 + ( y / h ) * 3.5;
 		const cw = ( 30 + rand() * 70 ) * stretch;
@@ -4701,8 +4672,12 @@ function createHighwaySkyDome() {
 
 	// Sun — bright core plus a wide soft glow, upper-left-ish (matching
 	// the reference) so it stays clear of dead-center where the horizon
-	// props/road already draw the eye.
-	const sunX = w * 0.27, sunY = h * 0.24;
+	// props/road already draw the eye. sunY is well below the pole-warp
+	// band above (v=0.24 originally — squarely inside it — was the actual
+	// cause of the reported "two suns": rendered from near-straight-up,
+	// that one sun visibly doubled from the sphere's own pole distortion,
+	// not from any duplicate object).
+	const sunX = w * 0.27, sunY = h * 0.58;
 	const glow = ctx.createRadialGradient( sunX, sunY, 0, sunX, sunY, 230 );
 	glow.addColorStop( 0, 'rgba(255,252,232,0.95)' );
 	glow.addColorStop( 0.12, 'rgba(255,248,214,0.75)' );
@@ -5351,7 +5326,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
 	setupMusicToggle();
-	const speedometer = setupSpeedometer( touchState, highway || freeRoam );
+	const speedometer = setupSpeedometer( highway || freeRoam );
 	const navCompass = highway ? setupNavCompass() : null;
 
 	const _forward = new THREE.Vector3();
@@ -5435,7 +5410,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			// joystick's "up" needs to match whichever angle the current
 			// camera treats as "ahead".
 			const rawInput = controls.update( highway ? Math.PI : undefined );
-			rawInput.handbrake = rawInput.handbrake || touchState.handbrakeHeld;
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
