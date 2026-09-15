@@ -5117,13 +5117,20 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// disappears, so `scale` — which shrinks each puff's actual rendered
 	// size, not the emission rate — is what actually needed to come down
 	// this much to read as "light" rather than a dense trail.
-	const particles = new SmokeTrails( scene, highway ? 0.35 : 1, highway ? 0.18 : 1 );
+	// That base 0.35 is a WORLD-SPACE puff size though, not relative to
+	// the car — so once the vehicle itself got scaled up HW_VEHICLE_SCALE
+	// (2x, see its own comment), the same absolute smoke size read as
+	// tiny next to the now-much-bigger car ("كبر الدخان حسب حجم
+	// السيارة"). Multiplying by HW_VEHICLE_SCALE keeps it proportional to
+	// the car again while keeping the same "light cruising trail" look
+	// (still noticeably lighter than the classic track's scale of 1).
+	const particles = new SmokeTrails( scene, highway ? 0.35 * HW_VEHICLE_SCALE : 1, highway ? 0.18 : 1 );
 	// AI cars share ONE dedicated, deliberately light smoke emitter — same
 	// idea as the AR floating-track/arena fix that stopped the smoke
 	// freeze (real-world scale here, so scale stays 1, only emitMultiplier
 	// is cut) — separate from the player's own full-strength `particles`
 	// so AI stays a light background effect rather than competing with it.
-	const aiParticles = new SmokeTrails( scene, highway ? 0.35 : 1, highway ? 0.05 : 0.15 );
+	const aiParticles = new SmokeTrails( scene, highway ? 0.35 * HW_VEHICLE_SCALE : 1, highway ? 0.05 : 0.15 );
 	const driftMarks = new DriftMarks( scene, mapParam );
 
 	const audio = new GameAudio();
