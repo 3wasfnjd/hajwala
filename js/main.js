@@ -4722,34 +4722,6 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// Distant dune hills (نفود) — real geometry (see createDuneHill's own
-	// comment for why these replaced an earlier camera-following backdrop
-	// after it kept reading as "moving with the car"), scattered near the
-	// ground's outer edge alongside the rocks above. Purely decorative, no
-	// collider — same treatment as the ground-clutter patches, and low/far
-	// enough past the boundary wall that a car could never reach one
-	// anyway. One shared sand texture per slot (not per hill) — cheap
-	// enough at HW_ACTIVE_SEGMENTS-many slots without creating a fresh
-	// canvas per individual hill.
-	const duneHillTexture = createSandTexture();
-	const duneHillSpecs = [
-		{ x: rockLineX - 4, z: HW_SEGMENT_LENGTH * 0.15, radius: 24, squash: 0.55 },
-		{ x: rockLineX - 20, z: HW_SEGMENT_LENGTH * 0.62, radius: 30, squash: 0.48 },
-		{ x: rockLineX - 9, z: HW_SEGMENT_LENGTH * 0.9, radius: 19, squash: 0.6 },
-	];
-	for ( const side of [ -1, 1 ] ) {
-
-		for ( const spec of duneHillSpecs ) {
-
-			const hill = createDuneHill( spec.radius, spec.squash, duneHillTexture );
-			hill.position.x = side * spec.x;
-			hill.position.z += spec.z;
-			group.add( hill );
-
-		}
-
-	}
-
 	// Desert wildlife (حياة برية) — a coiled snake resting just off the
 	// shoulder, purely decorative, no collider (unlike the rocks above).
 	// One per recyclable slot, close enough to the asphalt edge to
@@ -4920,47 +4892,6 @@ function createHighwaySegmentProps( models, world ) {
 // Alpha-cutout ridgeline silhouette: opaque sand color below the ridge
 // curve, fully transparent above it (so the flat sky shows straight
 // through) — same technique the old sky dome's own dune ridges used, drawn
-// Distant dune hills (نفود) — REAL geometry, part of the actual scrolling
-// world, one small scatter of them baked into every recyclable highway
-// segment (see createHighwaySegmentProps) rather than a backdrop that
-// somehow has to stay "out there" on an endlessly-scrolling road.
-//
-// Two earlier approaches both got reported as looking wrong for related
-// reasons:
-//   - Flat vertical alpha-cutout strips planted at the ground's edge,
-//     parallel to the road: nearly invisible while driving straight (seen
-//     almost perfectly edge-on).
-//   - A textured cylinder wrapping the camera, re-centered on it every
-//     frame like a conventional skybox: fixed that visibility problem, but
-//     at only a ~100-unit radius — closer than several foreground props —
-//     it read as visibly "gliding along with the car" rather than sitting
-//     still far away, reported twice even after tightening what it
-//     followed down to Z only. A real skybox gets away with this because
-//     it represents something so far away no parallax would ever be
-//     visible regardless; ours wasn't far enough for that illusion to hold.
-//
-// A squashed sphere, mostly buried in the ground so only a low dome pokes
-// above it, sidesteps both: it's genuinely part of the world (recycles
-// with its segment exactly like the rock scatter below, so it visibly
-// scrolls past and gets left behind — real parallax, no per-frame
-// camera-chasing math at all), reads correctly from any viewing angle
-// (unlike a flat cutout), and — using the same MeshStandardMaterial/sand
-// texture as the ground it sits in — actually shades under the scene's own
-// sun/hemisphere light instead of being a flat, unlit color.
-function createDuneHill( radius, squashY, texture ) {
-
-	const geo = new THREE.SphereGeometry( radius, 12, 8 );
-	const mat = new THREE.MeshStandardMaterial( { map: texture, roughness: 1 } );
-	const hill = new THREE.Mesh( geo, mat );
-	hill.scale.set( 1, squashY, 1 );
-	// Buried roughly halfway — enough of a dome pokes above ground level
-	// to read as a hill on the horizon, the rest sits under the (opaque)
-	// ground plane and is simply never seen, no geometry clipping needed.
-	hill.position.y = - radius * squashY * 0.55;
-	return hill;
-
-}
-
 function buildHighwayWorld( scene, models, world ) {
 
 	// Plain sky-blue sky, per feedback, replacing the earlier canvas-drawn
@@ -5140,11 +5071,7 @@ function buildHighwayWorld( scene, models, world ) {
 	}
 
 	// Recyclable tree/streetlight prop slots — pre-built once, centered
-	// on the spawn point (index 0 sits at Z 0..HW_SEGMENT_LENGTH). Distant
-	// dune hills (see createDuneHill) are scattered per-slot inside
-	// createHighwaySegmentProps itself now, alongside the rocks — real
-	// world geometry that scrolls past with its own segment instead of a
-	// separate camera-following object.
+	// on the spawn point (index 0 sits at Z 0..HW_SEGMENT_LENGTH).
 	const segments = [];
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
