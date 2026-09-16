@@ -4835,9 +4835,16 @@ function createDuneHorizonTexture() {
 	};
 
 	// Far/hazy ridge first, a slightly darker/more defined one layered on
-	// top for a bit of depth — same two-layer treatment as before.
-	drawRidge( h * 0.48, h * 0.08, 'rgba(196,168,128,0.65)', 0 );
-	drawRidge( h * 0.52, h * 0.11, 'rgba(150,118,82,0.85)', 4 );
+	// top for a bit of depth — same two-layer treatment as before. Lower
+	// amplitude than an earlier version: at only 3 repeats around the full
+	// cylinder each tile spanned 120° — most of a typical view was one
+	// single oversized hump, reported as looking like "a couple of big
+	// blobby mountains" rather than a dune field. createDuneHorizon's own
+	// repeat count went up to spread more, smaller bumps across the same
+	// view; softening the amplitude here on top of that keeps each one
+	// looking like a low rolling dune instead of a sharp little peak.
+	drawRidge( h * 0.48, h * 0.05, 'rgba(196,168,128,0.65)', 0 );
+	drawRidge( h * 0.52, h * 0.07, 'rgba(150,118,82,0.85)', 4 );
 
 	const texture = new THREE.CanvasTexture( canvas );
 	texture.colorSpace = THREE.SRGBColorSpace;
@@ -4863,7 +4870,7 @@ function createDuneHorizon() {
 
 	const radius = 100, height = 40;
 	const texture = createDuneHorizonTexture();
-	texture.repeat.set( 3, 1 );
+	texture.repeat.set( 8, 1 ); // more, smaller bumps than the ridge texture's own default tiling — see its comment
 
 	const geo = new THREE.CylinderGeometry( radius, radius, height, 48, 1, true );
 	const mat = new THREE.MeshBasicMaterial( { map: texture, transparent: true, side: THREE.BackSide, depthWrite: false, fog: false } );
@@ -5857,13 +5864,23 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
 
-			// Keep the dune horizon centered on the camera every frame (not
-			// just once at build time) — its own 100-unit radius easily
-			// dwarfs the camera's small offset from the car, but without
-			// this the endless highway's own Z-scrolling would eventually
-			// carry the camera far enough from the cylinder's fixed
-			// original center to visibly clip through its wall.
-			if ( highwayState && highwayState.duneHorizon ) highwayState.duneHorizon.position.copy( cam.camera.position );
+			// Follows the camera along Z ONLY — not X or Y (see the report
+			// this was fixed from: the dunes visibly "moved with the
+			// camera", every small bob/lean/lateral shift on top of it).
+			// Full position.copy() pins the whole horizon exactly onto the
+			// camera every frame, which cancels out ALL parallax, even from
+			// the small, constant camera jitter a real chase cam has — the
+			// dead giveaway that it's "attached" rather than actually far
+			// away. Only Z genuinely NEEDS to track the camera at all: the
+			// highway's own Z-scroll is unbounded, and without this the
+			// camera would eventually outrun the cylinder's fixed original
+			// center and clip through its wall. X/Y stay fixed at the
+			// road's own center/ground level, comfortably inside the
+			// 100-unit radius against the camera's actual (bounded, much
+			// smaller) X/Y range, so ordinary steering/bob/lean now reads
+			// as real parallax against a backdrop that isn't rigidly glued
+			// to the viewport.
+			if ( highwayState && highwayState.duneHorizon ) highwayState.duneHorizon.position.z = cam.camera.position.z;
 
 			renderer.render( scene, cam.camera );
 
