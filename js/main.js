@@ -5385,8 +5385,17 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		// createHighwaySegmentProps' own slot layout (index 0 covers Z
 		// 0..HW_SEGMENT_LENGTH) so the first tree/light pair is already in
 		// view rather than behind the player.
+		// Z is past segment 0's own U-turn gap (local Z 17.5..42.5 — see
+		// HW_UTURN_GAP_LENGTH/gapStart in createHighwaySegmentProps) rather
+		// than right on top of it: the wolf encounter (updateWolfEncounter)
+		// always stages at the very next upcoming gap ahead of the player,
+		// so spawning at Z=5 put that first gap — and the wolf standing
+		// there — only ~25 units away, visible right from the start of the
+		// game. Starting past it instead means the next gap is a full
+		// period (HW_UTURN_EVERY × HW_SEGMENT_LENGTH) away, giving a real
+		// stretch of ordinary driving before the first sighting.
 		const laneCenterX = -( HW_MEDIAN_HALF + HW_ROAD_WIDTH - HW_LANE_WIDTH / 2 );
-		vehicleSpawn = { position: [ laneCenterX, HW_SPHERE_RADIUS, 5 ], angle: 0 };
+		vehicleSpawn = { position: [ laneCenterX, HW_SPHERE_RADIUS, HW_SEGMENT_LENGTH + 5 ], angle: 0 };
 		sphereBody = createSphereBody( world, vehicleSpawn.position, HW_SPHERE_RADIUS );
 
 	} else if ( freeRoam ) {
