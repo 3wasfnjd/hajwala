@@ -4612,47 +4612,28 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
-	// Desert wildlife (حياة برية) — purely decorative, no collider (unlike
-	// the rocks above): a small trotting wolf pup on one shoulder and a
-	// coiled snake resting near the rocks on the other, one of each per
-	// recyclable slot. Neither model shipped with any baked animation (see
-	// createWolfWalker's own comment on the wolf's rig), so both are
-	// animated procedurally here and driven every frame from
-	// updateHighwaySegmentWildlife.
+	// Desert wildlife (حياة برية) — a coiled snake resting just off the
+	// shoulder, purely decorative, no collider (unlike the rocks above).
+	// One per recyclable slot, close enough to the asphalt edge to
+	// actually be seen while driving — an earlier version placed it out
+	// by the rock line at the ground's outer edge (~150+ units off the
+	// road), matching where the rocks themselves sit, but that's far
+	// outside the camera's forward FOV during normal driving and well
+	// past anywhere a player would think to look ("لم اجده" — reported as
+	// simply never seen at all).
+	// The wolf pup used to scatter here too, one per slot like this snake
+	// — dropped in favor of a single rare scripted encounter tied to the
+	// highway's own U-turn gaps instead (see createWolfEncounter/
+	// updateWolfEncounter): repeating it in every one of the ~10
+	// simultaneously-live slots meant a wolf was always somewhere on
+	// screen, and per feedback that read as too repetitive for what's
+	// meant to be a startling, occasional sight.
 	const wildlife = [];
 
 	{
 
-		const { group: wolfGroup, inst: wolfInst } = wrapHighwayWildlifeProp( models[ 'wildlife-wolf' ], HW_WOLF_HEIGHT );
-		const wolfBaseX = HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.4;
-		const wolfBaseZ = HW_SEGMENT_LENGTH * 0.42;
-		wolfGroup.position.set( wolfBaseX, 0, wolfBaseZ );
-		group.add( wolfGroup );
-		wildlife.push( {
-			wrapper: wolfGroup,
-			walk: createWolfWalker( wolfInst ),
-			baseZ: wolfBaseZ,
-			pathRange: 2.2,
-			// Every slot's wolf shares the same global animation clock (see
-			// updateHighwaySegmentWildlife) offset by its own index so
-			// segments recycling in and out don't all show a wolf at the
-			// exact same point in its stride/path — a fixed, cheap stand-in
-			// for per-instance randomness that still never needs reseeding
-			// on recycle (the offset lives on the slot, not the clock).
-			phaseOffset: Math.random() * Math.PI * 2,
-			// The model's own nose points toward local +X (measured
-			// directly off the loaded rig — see the dev history for this
-			// feature), so facing world +Z (this wolf's "forward" patrol
-			// direction) needs a -90° yaw, not +90°.
-			baseYaw: - Math.PI / 2,
-		} );
-
-	}
-
-	{
-
 		const { group: snakeGroup } = wrapHighwayGroundPatch( models[ 'wildlife-snake' ], HW_SNAKE_WIDTH );
-		const snakeX = - ( rockLineX - 4 );
+		const snakeX = - ( HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.6 );
 		const snakeZ = HW_SEGMENT_LENGTH * 0.6;
 		snakeGroup.position.set( snakeX, 0, snakeZ );
 		snakeGroup.rotation.y = 0.6;
@@ -5146,7 +5127,7 @@ function buildHighwayWorld( scene, models, world ) {
 
 	}
 
-	return { segments, world, skyDome, wildlifeClock: 0 };
+	return { segments, world, skyDome, wildlifeClock: 0, wolfEncounter: createWolfEncounter( scene, models ) };
 
 }
 
@@ -5225,10 +5206,7 @@ function updateHighwayRecycling( highwayState, playerZ ) {
 
 }
 
-const WOLF_UP_AXIS = new THREE.Vector3( 0, 1, 0 );
-const _wolfTargetQuat = new THREE.Quaternion();
-
-// Drives every recyclable slot's wolf/snake decorations (see
+// Drives every recyclable slot's snake decoration (see
 // createHighwaySegmentProps) — one shared clock (highwayState.wildlifeClock)
 // advances by dt each call, and every instance reads it through its own
 // fixed per-slot phaseOffset, rather than each carrying an independent timer
@@ -5242,33 +5220,104 @@ function updateHighwayWildlife( highwayState, dt ) {
 
 		for ( const w of slot.wildlife ) {
 
-			if ( w.idle ) {
-
-				// Snake: no rig to walk (see createHighwaySegmentProps'
-				// own comment on wildlife-snake.glb having no skeleton at
-				// all) — a slow breathing scale pulse plus a watchful
-				// sway reads as "alive and resting" without sliding the
-				// whole rigid coil around like it's on rails.
-				const t = clock * 0.8 + w.phaseOffset;
-				const breathe = 1 + 0.035 * Math.sin( t );
-				w.wrapper.scale.set( w.baseScale, w.baseScale * breathe, w.baseScale );
-				w.wrapper.rotation.y = w.baseYaw + 0.12 * Math.sin( t * 0.4 );
-				continue;
-
-			}
-
-			const walkClock = clock * 1.6 + w.phaseOffset;
-			const along = Math.sin( walkClock ); // -1..1 position along the patrol path
-			const vel = Math.cos( walkClock ); // sign = current direction of travel
-
-			w.wrapper.position.z = w.baseZ + w.pathRange * along;
-			w.walk( walkClock * 3 ); // leg-swing runs faster than the slow back-and-forth drift
-
-			const targetYaw = vel >= 0 ? w.baseYaw : w.baseYaw + Math.PI;
-			_wolfTargetQuat.setFromAxisAngle( WOLF_UP_AXIS, targetYaw );
-			w.wrapper.quaternion.slerp( _wolfTargetQuat, 1 - Math.exp( - 6 * dt ) );
+			// Snake: no rig to walk (see createHighwaySegmentProps' own
+			// comment on wildlife-snake.glb having no skeleton at all) —
+			// a slow breathing scale pulse plus a watchful sway reads as
+			// "alive and resting" without sliding the whole rigid coil
+			// around like it's on rails.
+			const t = clock * 0.8 + w.phaseOffset;
+			const breathe = 1 + 0.035 * Math.sin( t );
+			w.wrapper.scale.set( w.baseScale, w.baseScale * breathe, w.baseScale );
+			w.wrapper.rotation.y = w.baseYaw + 0.12 * Math.sin( t * 0.4 );
 
 		}
+
+	}
+
+}
+
+// A single wolf, NOT part of any recyclable segment slot — added straight
+// to the scene once and left hidden until triggered. Per feedback, scattering
+// one per slot (like the snake above) made it a constant, repetitive
+// background presence; this instead makes it a rare, startling one-off tied
+// to the highway's own U-turn median gaps (see updateHighwayGapState/
+// HW_UTURN_EVERY): as the car nears a gap, the wolf bolts from the
+// shoulder there straight out into the open desert and vanishes, then
+// won't appear again for HW_WOLF_COOLDOWN real seconds.
+function createWolfEncounter( scene, models ) {
+
+	const { group, inst } = wrapHighwayWildlifeProp( models[ 'wildlife-wolf' ], HW_WOLF_HEIGHT );
+	group.visible = false;
+	scene.add( group );
+
+	return {
+		group,
+		walk: createWolfWalker( inst ),
+		state: 'idle', // 'idle' → 'running' → 'cooldown' → 'idle'
+		timer: 0,
+		side: 1,
+		startX: 0,
+	};
+
+}
+
+const HW_WOLF_TRIGGER_DISTANCE = 24; // spooked this far before the car actually reaches the gap
+const HW_WOLF_RUN_DURATION = 4.5; // seconds spent bolting away before it's hidden again
+const HW_WOLF_RUN_SPEED = 14; // units/sec fleeing speed
+const HW_WOLF_COOLDOWN = 300; // 5 minutes real-time before it can be triggered again
+
+// Called every frame with the player's current world Z. U-turn gap segments
+// repeat at a fixed global index (index % HW_UTURN_EVERY === 0 — see
+// updateHighwayGapState), each HW_SEGMENT_LENGTH long with its actual median
+// opening sitting roughly in the middle — so "the next upcoming gap ahead of
+// the player" is just the nearest multiple of one fixed period, without
+// needing to inspect the recyclable segment slots at all (those get
+// repositioned/relabeled constantly by recycling; this doesn't need to
+// touch that system).
+function updateWolfEncounter( encounter, dt, playerZ ) {
+
+	if ( encounter.state === 'cooldown' ) {
+
+		encounter.timer -= dt;
+		if ( encounter.timer <= 0 ) encounter.state = 'idle';
+		return;
+
+	}
+
+	if ( encounter.state === 'idle' ) {
+
+		const period = HW_UTURN_EVERY * HW_SEGMENT_LENGTH;
+		const gapLocalZ = HW_SEGMENT_LENGTH / 2;
+		const nextGapZ = Math.ceil( ( playerZ - gapLocalZ ) / period ) * period + gapLocalZ;
+		const dist = nextGapZ - playerZ;
+		if ( dist > 0 && dist <= HW_WOLF_TRIGGER_DISTANCE ) {
+
+			encounter.state = 'running';
+			encounter.timer = 0;
+			encounter.side = Math.random() < 0.5 ? -1 : 1;
+			encounter.startX = encounter.side * ( HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.5 );
+			encounter.group.position.set( encounter.startX, 0, nextGapZ );
+			// The model's own nose points toward local +X at rest (measured
+			// directly off the loaded rig), so fleeing toward +X needs no
+			// added yaw at all, and fleeing toward -X just flips it 180°.
+			encounter.group.rotation.y = encounter.side > 0 ? 0 : Math.PI;
+			encounter.group.visible = true;
+
+		}
+
+		return;
+
+	}
+
+	// state === 'running'
+	encounter.timer += dt;
+	encounter.group.position.x = encounter.startX + encounter.side * HW_WOLF_RUN_SPEED * encounter.timer;
+	encounter.walk( encounter.timer * 9 ); // a full sprint, much quicker-legged than a walking trot
+	if ( encounter.timer >= HW_WOLF_RUN_DURATION ) {
+
+		encounter.group.visible = false;
+		encounter.state = 'cooldown';
+		encounter.timer = HW_WOLF_COOLDOWN;
 
 	}
 
@@ -5814,6 +5863,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			if ( highwayState ) updateHighwayRecycling( highwayState, vehicle.spherePos.z );
 			if ( highwayState ) updateHighwayWildlife( highwayState, dt );
+			if ( highwayState ) updateWolfEncounter( highwayState.wolfEncounter, dt, vehicle.spherePos.z );
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
