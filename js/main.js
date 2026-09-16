@@ -4779,183 +4779,29 @@ function createHighwaySegmentProps( models, world ) {
 
 }
 
-// Warm hazy desert sky — golden-hour sun with a soft glow, wispy
-// horizontal clouds, a gradient from dusty blue at the zenith down to a
-// warm sandy haze at the horizon (per a reference painting the user
-// supplied). Replaces the earlier flat highway-sky.jpg background: that
-// was a real photo, but low-resolution/blurry with visible tiling
-// artifacts, AND — being a plain 2D `scene.background` texture — never
-// actually rotated as the camera turned, reading as a sky frozen in
-// place through every corner. This is real geometry instead: a huge
-// inverted sphere textured with this canvas gradient, re-centered on the
-// camera every frame (see its repositioning next to cam.update() in the
-// frame loop) so it always surrounds the viewer and correctly pans with
-// every turn, like an actual sky would.
-function createHighwaySkyDome() {
-
-	const w = 1024, h = 512;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = w;
-	canvas.height = h;
-	const ctx = canvas.getContext( '2d' );
-
-	// v=0 (canvas top) maps to the sphere's own top (straight up/zenith),
-	// v=1 (canvas bottom) to its equator (the horizon, roughly level with
-	// the camera) — see the SphereGeometry's own phiLength/thetaLength
-	// below, which only builds the upper half, so the horizon band never
-	// needs to reach all the way to a "ground" pole.
-	const grad = ctx.createLinearGradient( 0, 0, 0, h );
-	grad.addColorStop( 0, '#5c7391' );
-	grad.addColorStop( 0.4, '#8fa0af' );
-	grad.addColorStop( 0.68, '#cdc3a8' );
-	grad.addColorStop( 0.86, '#eaddb8' );
-	grad.addColorStop( 1, '#f2e6c4' );
-	ctx.fillStyle = grad;
-	ctx.fillRect( 0, 0, w, h );
-
-	// Soft wispy clouds — short, low-opacity horizontal streaks, denser
-	// and more stretched near the horizon (perspective foreshortening),
-	// sparser and rounder higher up. Fixed pseudo-random layout (not
-	// re-rolled — this canvas is generated once) so the sky never pops
-	// between mode restarts.
-	let seed = 1337;
-	const rand = () => {
-
-		seed = ( seed * 1103515245 + 12345 ) & 0x7fffffff;
-		return ( seed % 10000 ) / 10000;
-
-	};
-
-	// y stays clear of the canvas top (v < ~0.35): that band maps to the
-	// sphere's own pole (theta=0, straight up), where a full 360° of U
-	// compresses into a single point in 3D — anything drawn there reads
-	// as badly smeared/warped from any angle actually close enough to
-	// look near-vertical, and at a wide FOV can even appear to repeat
-	// around the horizon-facing sides at once (reported as "two suns" —
-	// confirmed by rendering this dome from straight up: a single sun
-	// drawn up there really did appear to double, an artifact of the
-	// pole itself, not an actual second sun anywhere in the code).
-	for ( let i = 0; i < 55; i ++ ) {
-
-		const y = h * ( 0.38 + rand() * 0.48 );
-		const x = rand() * w;
-		const stretch = 1 + ( y / h ) * 3.5;
-		const cw = ( 30 + rand() * 70 ) * stretch;
-		const ch = ( 6 + rand() * 10 );
-		const alpha = 0.08 + rand() * 0.16;
-
-		ctx.save();
-		ctx.translate( x, y );
-		ctx.scale( 1, 0.5 );
-		const cloudGrad = ctx.createRadialGradient( 0, 0, 0, 0, 0, cw );
-		cloudGrad.addColorStop( 0, `rgba(255,250,235,${ alpha })` );
-		cloudGrad.addColorStop( 1, 'rgba(255,250,235,0)' );
-		ctx.fillStyle = cloudGrad;
-		ctx.beginPath();
-		ctx.ellipse( 0, 0, cw, ch * 2, 0, 0, Math.PI * 2 );
-		ctx.fill();
-		ctx.restore();
-
-	}
-
-	// Sun — bright core plus a wide soft glow, upper-left-ish (matching
-	// the reference) so it stays clear of dead-center where the horizon
-	// props/road already draw the eye. sunY is well below the pole-warp
-	// band above (v=0.24 originally — squarely inside it — was the actual
-	// cause of the reported "two suns": rendered from near-straight-up,
-	// that one sun visibly doubled from the sphere's own pole distortion,
-	// not from any duplicate object).
-	const sunX = w * 0.27, sunY = h * 0.58;
-	const glow = ctx.createRadialGradient( sunX, sunY, 0, sunX, sunY, 230 );
-	glow.addColorStop( 0, 'rgba(255,252,232,0.95)' );
-	glow.addColorStop( 0.12, 'rgba(255,248,214,0.75)' );
-	glow.addColorStop( 0.4, 'rgba(255,236,180,0.22)' );
-	glow.addColorStop( 1, 'rgba(255,236,180,0)' );
-	ctx.fillStyle = glow;
-	ctx.fillRect( sunX - 230, sunY - 230, 460, 460 );
-	ctx.fillStyle = '#fffdf1';
-	ctx.beginPath();
-	ctx.arc( sunX, sunY, 26, 0, Math.PI * 2 );
-	ctx.fill();
-
-	// Distant sand dunes (نفود) along the horizon — soft, rolling, hazy
-	// ridges rather than sharp peaks, since these are dunes, not rocky
-	// mountains. Two layers for a little depth (a lighter/hazier far
-	// ridge, a slightly darker/more defined one in front). Each ridge is
-	// a sum of sine waves at INTEGER frequencies across the canvas width,
-	// so the shape repeats exactly at x=0 and x=w — the sphere's own seam
-	// (phi=0/2π meet there, since phiLength spans the full circle) stays
-	// invisible because the ridge tiles across it with no visible joint.
-	// Sits at v≈0.9-1, right at the horizon band, comfortably below the
-	// pole-warp zone the sun/clouds above stay clear of.
-	const drawDuneRidge = ( baseY, amp, color, phase ) => {
-
-		const ridgeY = ( x ) => {
-
-			const t = ( x / w ) * Math.PI * 2;
-			return baseY - amp * (
-				0.5 * Math.sin( t * 3 + phase ) +
-				0.3 * Math.sin( t * 7 + phase * 1.7 ) +
-				0.2 * Math.sin( t * 13 + phase * 2.3 )
-			);
-
-		};
-
-		ctx.fillStyle = color;
-		ctx.beginPath();
-		ctx.moveTo( 0, h );
-		for ( let x = 0; x <= w; x += 8 ) ctx.lineTo( x, ridgeY( x ) );
-		ctx.lineTo( w, h );
-		ctx.closePath();
-		ctx.fill();
-
-	};
-
-	drawDuneRidge( h * 0.95, h * 0.018, 'rgba(196,168,128,0.55)', 0 );
-	drawDuneRidge( h * 0.98, h * 0.025, 'rgba(150,118,82,0.75)', 4 );
-
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.colorSpace = THREE.SRGBColorSpace;
-
-	// Upper hemisphere only (thetaLength = PI/2) — plenty for a
-	// forward/rear chase camera that never tilts to look straight down,
-	// and halves the fill-rate cost of a full sphere for no visible loss.
-	// Radius must stay comfortably under the highway camera's own far
-	// clip plane (200 — see its `new Camera(...)` call): the FORWARD
-	// camera-space depth of a point on this dome (what the GPU's own
-	// hardware far-plane clipping actually tests, not straight-line
-	// distance) is radius*cos(angle from the view direction) — so at a
-	// 300 radius, anything within roughly the middle 55° of the view cone
-	// already sits past 200 in camera-space depth and gets clipped away
-	// by the GPU, even though a coarse bounding-sphere frustum check
-	// alone wouldn't flag the object as fully culled (reported as the
-	// sky rendering as a flat, gradient-less, sun-less yellow — just
-	// scene.background's own fallback color showing through where the
-	// dome should have been). 100 keeps that worst-case depth well under
-	// 200 even at a much wider angle than this camera's own FOV ever
-	// reaches, with margin to spare — a bounded box.
-	const geo = new THREE.SphereGeometry( 100, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 );
-	const mat = new THREE.MeshBasicMaterial( { map: texture, side: THREE.BackSide, fog: false, depthWrite: false } );
-	const dome = new THREE.Mesh( geo, mat );
-	dome.renderOrder = -1;
-	return dome;
-
-}
-
 function buildHighwayWorld( scene, models, world ) {
 
-	// Sky dome (see createHighwaySkyDome's own comment) replaces the old
-	// flat photo-background approach entirely — scene.background stays a
-	// plain color now, just as a fallback behind/around the dome (e.g.
-	// visible for one frame before the dome's first repositioning) rather
-	// than doing any of the actual sky rendering itself.
-	// Fog color matches the sky gradient's own horizon tone (the warm
-	// sandy haze band) so the distance fade blends into it instead of
-	// showing a seam where geometry fog meets the dome.
-	scene.background = new THREE.Color( 0xead9b0 );
-	scene.fog = new THREE.Fog( 0xe4d3ab, 60, 260 );
-	const skyDome = createHighwaySkyDome();
-	scene.add( skyDome );
+	// Plain sky-blue sky, per feedback, replacing the earlier canvas-drawn
+	// dome (a gradient with clouds/sun/dunes painted onto a huge textured
+	// sphere, re-centered on the camera every frame so it would rotate
+	// correctly) — that whole approach chased more than one hard-to-debug
+	// rendering issue (a flat-yellow-sky bug from the dome's radius
+	// exceeding the camera's far clip plane, pole-distortion warping near
+	// the sphere's top). A flat scene.background color has none of that:
+	// it always fills the background regardless of camera settings, and
+	// with `scene.fog` set to the exact same color, distant fogged ground
+	// fades smoothly into it with no horizon seam to blend at all.
+	// Fog's far distance is deliberately AT the highway camera's own far
+	// clip plane (200 — see its `new Camera(...)` call), not past it: fogged
+	// geometry only reaches 100% of this color exactly at that distance, so
+	// anything short of that (the earlier 260 far value) still shows a
+	// sliver of its own real color right at the clip edge, where it then
+	// abruptly vanishes — a seam that read as almost invisible against the
+	// old dome's own muted, near-fog-colored horizon band, but stands out
+	// plainly once the sky is a distinctly different, more saturated blue.
+	const HW_SKY_BLUE = 0x87ceeb;
+	scene.background = new THREE.Color( HW_SKY_BLUE );
+	scene.fog = new THREE.Fog( HW_SKY_BLUE, 60, 200 );
 
 	// Median strip — flush with the road, same real asphalt PBR set as
 	// the lanes (own cloned textures so its own, narrower width gets a
@@ -5127,7 +4973,7 @@ function buildHighwayWorld( scene, models, world ) {
 
 	}
 
-	return { segments, world, skyDome, wildlifeClock: 0, wolfEncounter: createWolfEncounter( scene, models ) };
+	return { segments, world, wildlifeClock: 0, wolfEncounter: createWolfEncounter( scene, models ) };
 
 }
 
@@ -5908,14 +5754,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
-
-			// Keep the sky dome centered on the camera every frame (not
-			// just once at build time) — its own 100-unit radius easily
-			// dwarfs the camera's small offset from the car, but without
-			// this the endless highway's own Z-scrolling would eventually
-			// carry the camera far enough from the dome's fixed original
-			// center to visibly clip through its wall.
-			if ( highwayState && highwayState.skyDome ) highwayState.skyDome.position.copy( cam.camera.position );
 
 			renderer.render( scene, cam.camera );
 
