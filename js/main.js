@@ -69,6 +69,11 @@ const DEFAULT_MUSIC_SRC = 'audio/music.mp3';
 const bgMusic = new Audio( DEFAULT_MUSIC_SRC );
 bgMusic.loop = true;
 bgMusic.volume = 0.35;
+// Starts muted — silence is the default, and the player has to actively hit
+// the speaker button (setupMusicToggle) to turn it on. startBgMusic() below
+// still starts real playback right away (muted or not) so unmuting later is
+// instant, with no autoplay-unlock delay to wait through.
+bgMusic.muted = true;
 
 let customMusicUrl = null; // set by the menu's music icon; null = use the default track
 let bgMusicSrcApplied = DEFAULT_MUSIC_SRC; // avoids restarting playback from 0 on repeat startBgMusic() calls with the same source
