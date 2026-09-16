@@ -2560,10 +2560,11 @@ function addVehicleFlag( vehicle, imageUrl ) {
 // with no separate body pivot to anchor against (unlike addVehicleFlag's
 // own bodyNode handling above, which this skips entirely for that reason).
 const CAMEL_BED_POSITION = [ 0, 0.19, -0.27 ];
-// Scaled to the bed's own ~0.42-unit usable length with a safety margin at
-// both ends (0.36 spans z=-0.09 to -0.45, clear of both the cab wall and
-// the tailgate) rather than a snug edge-to-edge fit.
-const CAMEL_BED_SCALE = 0.36;
+// Sized up per feedback from an initial, more conservative fit (0.36,
+// comfortably clear of both bed ends) to 0.46 — closer to the bed's own
+// ~0.42-unit usable length, so the hump now sits right up against the
+// back of the cab rather than leaving visible empty floor at both ends.
+const CAMEL_BED_SCALE = 0.46;
 
 function addVehicleCamel( vehicle, models ) {
 
@@ -2588,7 +2589,9 @@ function addVehicleCamel( vehicle, models ) {
 	wrapper.position.set( ...CAMEL_BED_POSITION );
 	// The camel model's own nose points toward local +Z at rest (measured
 	// directly off the loaded model), matching the jeep's own +Z front —
-	// no rotation needed for it to sit facing forward, toward the cab.
+	// flipped 180° per feedback so it faces the tailgate/looks backward
+	// over the open bed instead of forward at the cab.
+	wrapper.rotation.y = Math.PI;
 	vehicleModel.add( wrapper );
 
 	return wrapper;
