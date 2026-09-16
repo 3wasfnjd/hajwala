@@ -4843,8 +4843,14 @@ function createDuneHorizonTexture() {
 	// repeat count went up to spread more, smaller bumps across the same
 	// view; softening the amplitude here on top of that keeps each one
 	// looking like a low rolling dune instead of a sharp little peak.
-	drawRidge( h * 0.48, h * 0.05, 'rgba(196,168,128,0.65)', 0 );
-	drawRidge( h * 0.52, h * 0.07, 'rgba(150,118,82,0.85)', 4 );
+	// Colors pushed warmer/more golden than the flat pale ground beneath —
+	// a duller, closer-to-the-ground tan (the previous colors here) made
+	// the whole horizon band read as an indistinct grayish smudge rather
+	// than clearly "sand dunes" once actually seen under this scene's own
+	// ACES tone mapping, which mutes flat colors more than an unlit
+	// preview render suggests.
+	drawRidge( h * 0.47, h * 0.055, 'rgba(214,178,120,0.6)', 0 );
+	drawRidge( h * 0.51, h * 0.075, 'rgba(180,128,72,0.85)', 4 );
 
 	const texture = new THREE.CanvasTexture( canvas );
 	texture.colorSpace = THREE.SRGBColorSpace;
