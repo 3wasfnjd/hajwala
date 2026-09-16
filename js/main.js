@@ -4722,6 +4722,34 @@ function createHighwaySegmentProps( models, world ) {
 
 	}
 
+	// Distant dune hills (نفود) — real geometry (see createDuneHill's own
+	// comment for why these replaced an earlier camera-following backdrop
+	// after it kept reading as "moving with the car"), scattered near the
+	// ground's outer edge alongside the rocks above. Purely decorative, no
+	// collider — same treatment as the ground-clutter patches, and low/far
+	// enough past the boundary wall that a car could never reach one
+	// anyway. One shared sand texture per slot (not per hill) — cheap
+	// enough at HW_ACTIVE_SEGMENTS-many slots without creating a fresh
+	// canvas per individual hill.
+	const duneHillTexture = createSandTexture();
+	const duneHillSpecs = [
+		{ x: rockLineX - 4, z: HW_SEGMENT_LENGTH * 0.15, radius: 24, squash: 0.55 },
+		{ x: rockLineX - 20, z: HW_SEGMENT_LENGTH * 0.62, radius: 30, squash: 0.48 },
+		{ x: rockLineX - 9, z: HW_SEGMENT_LENGTH * 0.9, radius: 19, squash: 0.6 },
+	];
+	for ( const side of [ -1, 1 ] ) {
+
+		for ( const spec of duneHillSpecs ) {
+
+			const hill = createDuneHill( spec.radius, spec.squash, duneHillTexture );
+			hill.position.x = side * spec.x;
+			hill.position.z += spec.z;
+			group.add( hill );
+
+		}
+
+	}
+
 	// Desert wildlife (حياة برية) — a coiled snake resting just off the
 	// shoulder, purely decorative, no collider (unlike the rocks above).
 	// One per recyclable slot, close enough to the asphalt edge to
@@ -4892,107 +4920,44 @@ function createHighwaySegmentProps( models, world ) {
 // Alpha-cutout ridgeline silhouette: opaque sand color below the ridge
 // curve, fully transparent above it (so the flat sky shows straight
 // through) — same technique the old sky dome's own dune ridges used, drawn
-// as a sum of sine waves at INTEGER frequencies across the canvas width so
-// the shape tiles with no visible seam wherever texture.repeat wraps it.
+// Distant dune hills (نفود) — REAL geometry, part of the actual scrolling
+// world, one small scatter of them baked into every recyclable highway
+// segment (see createHighwaySegmentProps) rather than a backdrop that
+// somehow has to stay "out there" on an endlessly-scrolling road.
 //
-// A first version tried this as two long flat vertical strips planted out
-// at the ground's own outer edge, parallel to the road — much simpler than
-// a camera-following dome, but nearly invisible in practice: a flat plane
-// running alongside the direction of travel is seen almost perfectly
-// edge-on while driving straight, which is most of the time, and only
-// showed a sliver at the screen edges even directly on top of the exact
-// highway camera. Real dune horizon needs to face the camera from
-// whichever way it's currently looking, which a flat static plane
-// fundamentally can't do.
+// Two earlier approaches both got reported as looking wrong for related
+// reasons:
+//   - Flat vertical alpha-cutout strips planted at the ground's edge,
+//     parallel to the road: nearly invisible while driving straight (seen
+//     almost perfectly edge-on).
+//   - A textured cylinder wrapping the camera, re-centered on it every
+//     frame like a conventional skybox: fixed that visibility problem, but
+//     at only a ~100-unit radius — closer than several foreground props —
+//     it read as visibly "gliding along with the car" rather than sitting
+//     still far away, reported twice even after tightening what it
+//     followed down to Z only. A real skybox gets away with this because
+//     it represents something so far away no parallax would ever be
+//     visible regardless; ours wasn't far enough for that illusion to hold.
 //
-// baseY is deliberately near v=0.5 (this texture's vertical midpoint):
-// createDuneHorizon's cylinder is centered on the camera's own eye height,
-// so v=0.5 lands almost exactly at the camera's true horizon line (where a
-// flat ground plane's own silhouette vanishes) — any ridge drawn much
-// below that sits behind/under the (opaque, closer) ground plane and never
-// actually shows, which is what made an earlier attempt at this same
-// texture read as barely-there little bumps poking above the horizon
-// instead of full hills.
-function createDuneHorizonTexture() {
+// A squashed sphere, mostly buried in the ground so only a low dome pokes
+// above it, sidesteps both: it's genuinely part of the world (recycles
+// with its segment exactly like the rock scatter below, so it visibly
+// scrolls past and gets left behind — real parallax, no per-frame
+// camera-chasing math at all), reads correctly from any viewing angle
+// (unlike a flat cutout), and — using the same MeshStandardMaterial/sand
+// texture as the ground it sits in — actually shades under the scene's own
+// sun/hemisphere light instead of being a flat, unlit color.
+function createDuneHill( radius, squashY, texture ) {
 
-	const w = 2048, h = 512;
-	const canvas = document.createElement( 'canvas' );
-	canvas.width = w;
-	canvas.height = h;
-	const ctx = canvas.getContext( '2d' );
-
-	const ridgeY = ( x, baseY, amp, phase ) => {
-
-		const t = ( x / w ) * Math.PI * 2;
-		return baseY - amp * (
-			0.5 * Math.sin( t * 3 + phase ) +
-			0.3 * Math.sin( t * 7 + phase * 1.7 ) +
-			0.2 * Math.sin( t * 12 + phase * 2.3 )
-		);
-
-	};
-
-	const drawRidge = ( baseY, amp, color, phase ) => {
-
-		ctx.fillStyle = color;
-		ctx.beginPath();
-		ctx.moveTo( 0, h );
-		for ( let x = 0; x <= w; x += 8 ) ctx.lineTo( x, ridgeY( x, baseY, amp, phase ) );
-		ctx.lineTo( w, h );
-		ctx.closePath();
-		ctx.fill();
-
-	};
-
-	// Far/hazy ridge first, a slightly darker/more defined one layered on
-	// top for a bit of depth — same two-layer treatment as before. Lower
-	// amplitude than an earlier version: at only 3 repeats around the full
-	// cylinder each tile spanned 120° — most of a typical view was one
-	// single oversized hump, reported as looking like "a couple of big
-	// blobby mountains" rather than a dune field. createDuneHorizon's own
-	// repeat count went up to spread more, smaller bumps across the same
-	// view; softening the amplitude here on top of that keeps each one
-	// looking like a low rolling dune instead of a sharp little peak.
-	// Colors pushed warmer/more golden than the flat pale ground beneath —
-	// a duller, closer-to-the-ground tan (the previous colors here) made
-	// the whole horizon band read as an indistinct grayish smudge rather
-	// than clearly "sand dunes" once actually seen under this scene's own
-	// ACES tone mapping, which mutes flat colors more than an unlit
-	// preview render suggests.
-	drawRidge( h * 0.47, h * 0.055, 'rgba(214,178,120,0.6)', 0 );
-	drawRidge( h * 0.51, h * 0.075, 'rgba(180,128,72,0.85)', 4 );
-
-	const texture = new THREE.CanvasTexture( canvas );
-	texture.colorSpace = THREE.SRGBColorSpace;
-	texture.wrapS = THREE.RepeatWrapping;
-	return texture;
-
-}
-
-// Open-ended cylinder (no top/bottom caps — never seen from inside, and one
-// fewer seam to worry about than a sphere's own poles) wrapping the camera
-// at a fixed radius, re-centered on it every frame exactly like the old sky
-// dome was (see its repositioning next to cam.update() in the frame loop) —
-// that per-frame following is unavoidable for anything meant to always sit
-// "on the horizon" on an endlessly-scrolling road, but a cylinder sidesteps
-// that dome's other failure mode: no poles means no near-vertical-view
-// warping to guard against in the first place.
-// Radius must stay comfortably under the highway camera's own far clip
-// plane (200 — see its `new Camera(...)` call) for the exact same reason
-// the old dome's own radius did: forward camera-space depth at a viewing
-// angle close to head-on approaches the radius itself. 100 is the same
-// value already proven safe for that dome.
-function createDuneHorizon() {
-
-	const radius = 100, height = 40;
-	const texture = createDuneHorizonTexture();
-	texture.repeat.set( 8, 1 ); // more, smaller bumps than the ridge texture's own default tiling — see its comment
-
-	const geo = new THREE.CylinderGeometry( radius, radius, height, 48, 1, true );
-	const mat = new THREE.MeshBasicMaterial( { map: texture, transparent: true, side: THREE.BackSide, depthWrite: false, fog: false } );
-	const mesh = new THREE.Mesh( geo, mat );
-	mesh.renderOrder = -1;
-	return mesh;
+	const geo = new THREE.SphereGeometry( radius, 12, 8 );
+	const mat = new THREE.MeshStandardMaterial( { map: texture, roughness: 1 } );
+	const hill = new THREE.Mesh( geo, mat );
+	hill.scale.set( 1, squashY, 1 );
+	// Buried roughly halfway — enough of a dome pokes above ground level
+	// to read as a hill on the horizon, the rest sits under the (opaque)
+	// ground plane and is simply never seen, no geometry clipping needed.
+	hill.position.y = - radius * squashY * 0.55;
+	return hill;
 
 }
 
@@ -5174,16 +5139,12 @@ function buildHighwayWorld( scene, models, world ) {
 
 	}
 
-	// Distant dune horizon (نفود) — brought back per feedback after the sky
-	// itself simplified to a flat color, as a low ridgeline silhouette
-	// wrapping the camera (see createDuneHorizon's own comment for why this
-	// needs to follow the camera rather than sit still like the boundary
-	// walls/ground planes above it).
-	const duneHorizon = createDuneHorizon();
-	scene.add( duneHorizon );
-
 	// Recyclable tree/streetlight prop slots — pre-built once, centered
-	// on the spawn point (index 0 sits at Z 0..HW_SEGMENT_LENGTH).
+	// on the spawn point (index 0 sits at Z 0..HW_SEGMENT_LENGTH). Distant
+	// dune hills (see createDuneHill) are scattered per-slot inside
+	// createHighwaySegmentProps itself now, alongside the rocks — real
+	// world geometry that scrolls past with its own segment instead of a
+	// separate camera-following object.
 	const segments = [];
 	for ( let i = 0; i < HW_ACTIVE_SEGMENTS; i ++ ) {
 
@@ -5198,7 +5159,7 @@ function buildHighwayWorld( scene, models, world ) {
 
 	}
 
-	return { segments, world, wildlifeClock: 0, wolfEncounter: createWolfEncounter( scene, models ), duneHorizon };
+	return { segments, world, wildlifeClock: 0, wolfEncounter: createWolfEncounter( scene, models ) };
 
 }
 
@@ -5995,24 +5956,6 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
-
-			// Follows the camera along Z ONLY — not X or Y (see the report
-			// this was fixed from: the dunes visibly "moved with the
-			// camera", every small bob/lean/lateral shift on top of it).
-			// Full position.copy() pins the whole horizon exactly onto the
-			// camera every frame, which cancels out ALL parallax, even from
-			// the small, constant camera jitter a real chase cam has — the
-			// dead giveaway that it's "attached" rather than actually far
-			// away. Only Z genuinely NEEDS to track the camera at all: the
-			// highway's own Z-scroll is unbounded, and without this the
-			// camera would eventually outrun the cylinder's fixed original
-			// center and clip through its wall. X/Y stay fixed at the
-			// road's own center/ground level, comfortably inside the
-			// 100-unit radius against the camera's actual (bounded, much
-			// smaller) X/Y range, so ordinary steering/bob/lean now reads
-			// as real parallax against a backdrop that isn't rigidly glued
-			// to the viewport.
-			if ( highwayState && highwayState.duneHorizon ) highwayState.duneHorizon.position.z = cam.camera.position.z;
 
 			renderer.render( scene, cam.camera );
 
