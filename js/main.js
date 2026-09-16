@@ -234,7 +234,7 @@ const modelNames = [
 	'decoration-empty', 'decoration-forest', 'decoration-tents',
 	'highway-tree', 'highway-streetlight', 'highway-ground-patch', 'highway-barrier',
 	'highway-rock-a', 'highway-rock-b', 'highway-rock-c', 'highway-rock-d',
-	'wildlife-wolf', 'wildlife-snake',
+	'wildlife-wolf', 'wildlife-snake', 'decoration-camel',
 ];
 
 // Godot imports vehicle models at root_scale=0.5 — true for every
@@ -2547,6 +2547,54 @@ function addVehicleFlag( vehicle, imageUrl ) {
 
 }
 
+// Camel decoration riding in the truck bed (حوض الشاص) — vehicle-jeep
+// only, الطريق (highway) mode only (see this function's own call site).
+// Position/scale were measured the same way JEEP_LAYOUT's own entries
+// were: an orthographic side render of vehicle-jeep.glb with a pixel grid
+// overlaid, anchored against two already-known points (headlightLens'
+// z=0.495 and tailgateDecal's z=-0.5) and converted back through the
+// known camera frustum. The bed's own usable floor came out to roughly
+// z=-0.06 (back of the cab) to z=-0.48 (tailgate) at floor height y≈0.19,
+// all in the model's own pre-scale local space — the same space every
+// JEEP_LAYOUT entry uses, since vehicle-jeep.glb is a single merged mesh
+// with no separate body pivot to anchor against (unlike addVehicleFlag's
+// own bodyNode handling above, which this skips entirely for that reason).
+const CAMEL_BED_POSITION = [ 0, 0.19, -0.27 ];
+// Scaled to the bed's own ~0.42-unit usable length with a safety margin at
+// both ends (0.36 spans z=-0.09 to -0.45, clear of both the cab wall and
+// the tailgate) rather than a snug edge-to-edge fit.
+const CAMEL_BED_SCALE = 0.36;
+
+function addVehicleCamel( vehicle, models ) {
+
+	const vehicleModel = vehicle.container.children[ 0 ];
+	const camelSource = models[ 'decoration-camel' ];
+	if ( ! camelSource ) return null;
+
+	const camel = camelSource.clone( true );
+	const box = new THREE.Box3().setFromObject( camel );
+	// Recenter horizontally and drop it to sit on the bed floor from its
+	// own lowest point (local y=0) rather than its raw bounding-box
+	// center — same ground-alignment approach as wrapHighwayPropAt.
+	camel.position.set(
+		- ( box.min.x + box.max.x ) / 2,
+		- box.min.y,
+		- ( box.min.z + box.max.z ) / 2
+	);
+
+	const wrapper = new THREE.Group();
+	wrapper.add( camel );
+	wrapper.scale.setScalar( CAMEL_BED_SCALE );
+	wrapper.position.set( ...CAMEL_BED_POSITION );
+	// The camel model's own nose points toward local +Z at rest (measured
+	// directly off the loaded model), matching the jeep's own +Z front —
+	// no rotation needed for it to sit facing forward, toward the cab.
+	vehicleModel.add( wrapper );
+
+	return wrapper;
+
+}
+
 // ─── Real headlight / taillight lighting ───────────────────
 // Positions come from the static per-vehicle-shape layout tables above —
 // one calibrated set per vehicle body (truck / Camry / Camaro).
@@ -3480,6 +3528,65 @@ function setupMusicToggle() {
 
 		e.stopPropagation();
 		bgMusic.muted = ! bgMusic.muted;
+		sync();
+
+	} );
+
+	sync();
+
+}
+
+// Small floating toggle for the camel decoration riding in the truck bed
+// (see addVehicleCamel) — only created for vehicle-jeep in الطريق
+// (highway) mode (see its call site), letting the player turn it on/off
+// anytime mid-drive rather than only at vehicle-pick time. Left column,
+// mirroring the music toggle/nav compass's own right-column stack, clear
+// of the fullscreen button above it. Preference persists across sessions
+// the same way LapTimer's own best-lap times do.
+const CAMEL_STORAGE_KEY = 'racing.highwayCamel';
+
+function setupCamelToggle( camelGroup ) {
+
+	const style = document.createElement( 'style' );
+	style.textContent = `
+		#hw-camel-btn {
+			position: fixed; left: 14px; top: 72px; z-index: 30;
+			width: 46px; height: 46px; border-radius: 50%; border: none; padding: 0;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 21px; color: #fff;
+			background: linear-gradient(165deg, rgba(32,20,54,0.72), rgba(13,13,22,0.72));
+			border: 1px solid rgba(139,95,191,0.35);
+			backdrop-filter: blur(6px);
+			box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+			touch-action: manipulation; transition: background 0.12s, transform 0.08s, opacity 0.12s;
+			opacity: 0.45;
+		}
+		#hw-camel-btn.active { opacity: 1; }
+		#hw-camel-btn:active { transform: scale(0.94); }
+	`;
+	document.head.appendChild( style );
+
+	const btn = document.createElement( 'button' );
+	btn.id = 'hw-camel-btn';
+	btn.className = 'game-hud';
+	btn.textContent = '🐪';
+	document.body.appendChild( btn );
+
+	let shown = camelGroup.visible;
+
+	function sync() {
+
+		camelGroup.visible = shown;
+		btn.classList.toggle( 'active', shown );
+		btn.title = shown ? 'إخفاء الجمل من الحوض' : 'وضع الجمل في الحوض';
+
+	}
+
+	btn.addEventListener( 'pointerdown', ( e ) => {
+
+		e.stopPropagation();
+		shown = ! shown;
+		try { localStorage.setItem( CAMEL_STORAGE_KEY, shown ? '1' : '0' ); } catch {}
 		sync();
 
 	} );
@@ -5630,6 +5737,22 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// attaching it entirely) rather than showing that generic green
 	// placeholder banner — every other mode keeps the old fallback.
 	const vehicleFlag = ( highway && ! flagImage ) ? null : addVehicleFlag( vehicle, flagImage );
+
+	// Camel in the truck bed — vehicle-jeep ("شاص") only, الطريق only (see
+	// addVehicleCamel's own comment on where its position came from).
+	// Starts visible unless the player has already turned it off in a
+	// previous session (CAMEL_STORAGE_KEY, read once here rather than
+	// inside setupCamelToggle so the very first render already matches —
+	// no visible on-then-off flash).
+	const camelGroup = ( highway && vehicleKey === 'vehicle-jeep' ) ? addVehicleCamel( vehicle, models ) : null;
+	if ( camelGroup ) {
+
+		let camelStored = null;
+		try { camelStored = localStorage.getItem( CAMEL_STORAGE_KEY ); } catch {}
+		camelGroup.visible = camelStored !== '0';
+		setupCamelToggle( camelGroup );
+
+	}
 
 	dirLight.target = vehicleGroup;
 
