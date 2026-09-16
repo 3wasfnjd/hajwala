@@ -5237,13 +5237,16 @@ function updateHighwayWildlife( highwayState, dt ) {
 }
 
 // A single wolf, NOT part of any recyclable segment slot — added straight
-// to the scene once and left hidden until triggered. Per feedback, scattering
-// one per slot (like the snake above) made it a constant, repetitive
-// background presence; this instead makes it a rare, startling one-off tied
-// to the highway's own U-turn median gaps (see updateHighwayGapState/
-// HW_UTURN_EVERY): as the car nears a gap, the wolf bolts from the
-// shoulder there straight out into the open desert and vanishes, then
-// won't appear again for HW_WOLF_COOLDOWN real seconds.
+// to the scene once. Per feedback, scattering one per slot (like the snake
+// above) made it a constant, repetitive background presence; this instead
+// ties it to the highway's own U-turn median gaps (see
+// updateHighwayGapState/HW_UTURN_EVERY): it stands still on one shoulder,
+// visible from a distance as the car approaches down the straight, then
+// once the car actually gets close it bolts STRAIGHT ACROSS the road to the
+// opposite shoulder and on into the open desert there, vanishing — not
+// just backing further away on its own side, which wouldn't read as
+// "crossing the road" at all. Only re-appears (at the next U-turn gap
+// ahead) HW_WOLF_COOLDOWN real seconds after that.
 function createWolfEncounter( scene, models ) {
 
 	const { group, inst } = wrapHighwayWildlifeProp( models[ 'wildlife-wolf' ], HW_WOLF_HEIGHT );
@@ -5253,18 +5256,20 @@ function createWolfEncounter( scene, models ) {
 	return {
 		group,
 		walk: createWolfWalker( inst ),
-		state: 'idle', // 'idle' → 'running' → 'cooldown' → 'idle'
+		state: 'standing', // 'standing' → 'running' → 'cooldown' → 'standing'
 		timer: 0,
 		side: 1,
 		startX: 0,
+		gapZ: null, // which upcoming U-turn gap it's currently staged at (see 'standing' below)
 	};
 
 }
 
-const HW_WOLF_TRIGGER_DISTANCE = 24; // spooked this far before the car actually reaches the gap
-const HW_WOLF_RUN_DURATION = 4.5; // seconds spent bolting away before it's hidden again
-const HW_WOLF_RUN_SPEED = 14; // units/sec fleeing speed
-const HW_WOLF_COOLDOWN = 300; // 5 minutes real-time before it can be triggered again
+const HW_WOLF_TRIGGER_DISTANCE = 14; // only bolts once the car is genuinely close, not as an early warning
+const HW_WOLF_RUN_SPEED = 8; // a natural running pace, not a sprint
+const HW_WOLF_RUN_STRIDE_RATE = 5; // leg-cycle speed to match — see createWolfWalker's own trot for comparison (paired with a much higher speed there)
+const HW_WOLF_RUN_DISTANCE = 90; // total lateral distance crossed before it's hidden — comfortably past the opposite shoulder and into open desert
+const HW_WOLF_COOLDOWN = 300; // 5 minutes real-time before it can appear again
 
 // Called every frame with the player's current world Z. U-turn gap segments
 // repeat at a fixed global index (index % HW_UTURN_EVERY === 0 — see
@@ -5279,29 +5284,10 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 	if ( encounter.state === 'cooldown' ) {
 
 		encounter.timer -= dt;
-		if ( encounter.timer <= 0 ) encounter.state = 'idle';
-		return;
+		if ( encounter.timer <= 0 ) {
 
-	}
-
-	if ( encounter.state === 'idle' ) {
-
-		const period = HW_UTURN_EVERY * HW_SEGMENT_LENGTH;
-		const gapLocalZ = HW_SEGMENT_LENGTH / 2;
-		const nextGapZ = Math.ceil( ( playerZ - gapLocalZ ) / period ) * period + gapLocalZ;
-		const dist = nextGapZ - playerZ;
-		if ( dist > 0 && dist <= HW_WOLF_TRIGGER_DISTANCE ) {
-
-			encounter.state = 'running';
-			encounter.timer = 0;
-			encounter.side = Math.random() < 0.5 ? -1 : 1;
-			encounter.startX = encounter.side * ( HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.5 );
-			encounter.group.position.set( encounter.startX, 0, nextGapZ );
-			// The model's own nose points toward local +X at rest (measured
-			// directly off the loaded rig), so fleeing toward +X needs no
-			// added yaw at all, and fleeing toward -X just flips it 180°.
-			encounter.group.rotation.y = encounter.side > 0 ? 0 : Math.PI;
-			encounter.group.visible = true;
+			encounter.state = 'standing';
+			encounter.gapZ = null; // forces 'standing' below to re-stage at the next upcoming gap
 
 		}
 
@@ -5309,11 +5295,56 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 
 	}
 
-	// state === 'running'
+	const period = HW_UTURN_EVERY * HW_SEGMENT_LENGTH;
+	const gapLocalZ = HW_SEGMENT_LENGTH / 2;
+	const nextGapZ = Math.ceil( ( playerZ - gapLocalZ ) / period ) * period + gapLocalZ;
+
+	if ( encounter.state === 'standing' ) {
+
+		// Re-stages only when the upcoming gap actually changes (i.e. once,
+		// right after spawn/cooldown) rather than every frame — once
+		// placed, it stays put at that exact spot, visible from however far
+		// down the straight the camera can actually see it, instead of
+		// being (re)hidden until some short trigger range like an earlier
+		// version did.
+		if ( encounter.gapZ !== nextGapZ ) {
+
+			encounter.gapZ = nextGapZ;
+			encounter.side = Math.random() < 0.5 ? -1 : 1;
+			encounter.startX = encounter.side * ( HW_MEDIAN_HALF + HW_ROAD_WIDTH + HW_SHOULDER * 0.5 );
+			encounter.group.position.set( encounter.startX, 0, nextGapZ );
+			// Faces ACROSS the road, toward the side it's about to bolt
+			// for — standing there looking like it's about to cross, not
+			// facing down the shoulder. The model's own nose points toward
+			// local +X at rest (measured directly off the loaded rig): 0°
+			// yaw for a wolf about to run toward +X (started on the -X
+			// side), a 180° flip for the reverse.
+			encounter.group.rotation.y = encounter.side > 0 ? Math.PI : 0;
+			encounter.walk( 0 ); // frozen, neutral standing pose — no gait until it actually bolts
+			encounter.group.visible = true;
+
+		}
+
+		const dist = nextGapZ - playerZ;
+		if ( dist > 0 && dist <= HW_WOLF_TRIGGER_DISTANCE ) {
+
+			encounter.state = 'running';
+			encounter.timer = 0;
+
+		}
+
+		return;
+
+	}
+
+	// state === 'running' — crosses from its standing shoulder toward the
+	// OPPOSITE one (- its own side, since it started on +/-side and flees
+	// the other way), matching the yaw set when it was staged above.
 	encounter.timer += dt;
-	encounter.group.position.x = encounter.startX + encounter.side * HW_WOLF_RUN_SPEED * encounter.timer;
-	encounter.walk( encounter.timer * 9 ); // a full sprint, much quicker-legged than a walking trot
-	if ( encounter.timer >= HW_WOLF_RUN_DURATION ) {
+	const traveled = HW_WOLF_RUN_SPEED * encounter.timer;
+	encounter.group.position.x = encounter.startX - encounter.side * traveled;
+	encounter.walk( encounter.timer * HW_WOLF_RUN_STRIDE_RATE );
+	if ( traveled >= HW_WOLF_RUN_DISTANCE ) {
 
 		encounter.group.visible = false;
 		encounter.state = 'cooldown';
