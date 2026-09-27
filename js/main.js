@@ -5329,7 +5329,7 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 // City geometry and its textures are loaded only when this mode is selected.
 async function startWebMode( options ) {
 	if ( options.city ) {
-		const { buildCityWorld } = await import( './City.js?v=rain-1' );
+		const { buildCityWorld } = await import( './City.js?v=chase-1' );
 		return startNormalMode( { ...options, cityBuilder: buildCityWorld } );
 	}
 	return startNormalMode( options );

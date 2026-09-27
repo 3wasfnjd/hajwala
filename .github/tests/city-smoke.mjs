@@ -124,7 +124,7 @@ try {
 	// Exercise the actual physics engine against a city perimeter, not a mocked collider.
 	const collision = await mobile.evaluate( async () => {
 		const physics = await import( 'crashcat' );
-		const { buildCityWorld } = await import( './js/City.js?v=rain-1' );
+		const { buildCityWorld } = await import( './js/City.js?v=chase-1' );
 		const THREE = await import( 'three' );
 		const { createSphereBody } = await import( './js/Physics.js' );
 		const settings = physics.createWorldSettings();
@@ -148,15 +148,19 @@ try {
 		camera.position.set( 25, 5, 36 );
 		city.resolveCamera( camera, new THREE.Vector3( 25, 0.5, 12 ) );
 		const cameraPosition = camera.position.toArray();
+		camera.position.set( 25, 3.5, 22 );
+		city.resolveCamera( camera, new THREE.Vector3( 25, 0.5, 16.3 ) );
+		const closeCameraPosition = camera.position.toArray();
 		// Approach above the sidewalk to isolate the building collision.
 		const buildingBody = createSphereBody( world, [ 25, 3, 12 ] );
 		physics.rigidBody.setLinearVelocity( world, buildingBody, [ 0, 0, 22 ] );
 		for ( let i = 0; i < 120; i ++ ) physics.updateWorld( world, {}, 1 / 120 );
-		return { boundary, building: Array.from( buildingBody.position ), camera: cameraPosition };
+		return { boundary, building: Array.from( buildingBody.position ), camera: cameraPosition, closeCamera: closeCameraPosition };
 	} );
 	assert.ok( collision.boundary[ 2 ] < 97.15 && collision.boundary[ 2 ] > 94, 'Perimeter must stop the vehicle body' );
 	assert.ok( collision.building[ 2 ] < 19, 'Building collider must stop the vehicle body' );
 	assert.ok( collision.camera[ 2 ] < 20, 'Camera must stop before entering a building' );
+	assert.ok( collision.closeCamera[ 2 ] < 16.65, 'Camera must also stay outside a wall when the car is close to it' );
 	assert.ok( collision.boundary.every( Number.isFinite ) && collision.building.every( Number.isFinite ) );
 	reports.push( { collision } );
 
