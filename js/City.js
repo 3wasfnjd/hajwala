@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { rigidBody, box, MotionType } from 'crashcat';
-import { createCityWeather } from './CityWeather.js?v=rain-1';
+import { createCityWeather } from './CityWeather.js?v=sky-1';
 
 // Original, replaceable Hajwala district. No assets from Threejs-Punk are
 // redistributed here: its public/ assets are excluded from its MIT license.
-export const CITY_VERSION = '2026-09-city-rain-1';
+export const CITY_VERSION = '2026-09-city-sky-1';
 export const CITY_LIMIT = 98;
 
 export function buildCityWorld( scene, world ) {

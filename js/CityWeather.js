@@ -3,6 +3,7 @@ import { Reflector } from 'three/addons/objects/Reflector.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { applyCitySky } from './CitySky.js?v=sky-1';
 
 // Original GPU weather; bounded particle counts, six local lights, one small
 // reflection target. No downloaded textures and no per-drop CPU animation.
@@ -171,6 +172,7 @@ export function createCityWeather( group, emitters ) {
 	return {
 		status,
 		createRenderer( renderer, scene, camera, bloom ) {
+			applyCitySky( renderer, scene );
 			// The existing renderer uses an unsigned-byte output buffer, so
 			// setEffects() alone cannot enable bloom. Use an HDR composer only
 			// for this mode without changing the other modes' rendering path.
