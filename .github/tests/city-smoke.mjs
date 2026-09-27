@@ -26,7 +26,7 @@ const browser = await chromium.launch( { headless: true, args: [
 const errors = [];
 const reports = [];
 try {
-	const page = await browser.newPage( { viewport: { width: 1100, height: 720 } } );
+	const page = await browser.newPage( { viewport: { width: 960, height: 540 } } );
 	page.on( 'pageerror', error => errors.push( String( error ) ) );
 	let cityRequested = false;
 	page.on( 'request', request => {
@@ -47,9 +47,14 @@ try {
 	assert.equal( await page.locator( '#boot-error-overlay' ).count(), 0 );
 	await page.screenshot( { path: 'artifacts/city-desktop.png' } );
 	await page.keyboard.down( 'ArrowUp' );
-	await page.waitForTimeout( 5000 );
+	console.log( 'CITY_START ' + JSON.stringify( start ) );
+	await page.waitForFunction( origin => {
+		const state = window.__hajwalaCity.snapshot();
+		return Math.hypot( state.position[ 0 ] - origin[ 0 ], state.position[ 2 ] - origin[ 2 ] ) > 2;
+	}, start.position, { timeout: 90000 } );
 	await page.keyboard.up( 'ArrowUp' );
 	const moving = await page.evaluate( () => window.__hajwalaCity.snapshot() );
+	console.log( 'CITY_MOVING ' + JSON.stringify( moving ) );
 	assert.ok( Math.hypot( moving.position[ 0 ] - start.position[ 0 ], moving.position[ 2 ] - start.position[ 2 ] ) > 2,
 		'Existing vehicle controls must move the car' );
 	assert.ok( moving.position[ 1 ] > 0.25 && moving.position[ 1 ] < 1, 'Car must stay on ground while driving' );
@@ -116,6 +121,15 @@ try {
 } catch ( error ) {
 	console.error( 'CITY_BROWSER_ERRORS ' + JSON.stringify( errors ) );
 	for ( const page of browser.contexts().flatMap( context => context.pages() ) ) {
+		console.error( 'CITY_FAILURE_STATE ' + JSON.stringify( await page.evaluate( () => ({
+			state: window.__hajwalaCity?.snapshot(), focus: document.activeElement?.tagName,
+			width: innerWidth, height: innerHeight, hidden: document.hidden,
+		}) ).catch( () => ({}) ) ) );
+		const preview = await page.screenshot( { type: 'jpeg', quality: 55 } ).catch( () => null );
+		if ( preview ) {
+			const encoded = preview.toString( 'base64' );
+			for ( let i = 0; i < encoded.length; i += 8000 ) console.log( 'CITY_FAILURE_PREVIEW ' + String( i / 8000 ).padStart( 4, '0' ) + ' ' + encoded.slice( i, i + 8000 ) );
+		}
 		console.error( 'CITY_FAILURE_PAGE ' + ( await page.locator( 'body' ).innerText().catch( () => '' ) ).slice( 0, 5000 ) );
 	}
 	throw error;
