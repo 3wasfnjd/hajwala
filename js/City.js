@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { rigidBody, box, MotionType } from 'crashcat';
+import { createCityWeather } from './CityWeather.js?v=rain-1';
 
 // Original, replaceable Hajwala district. No assets from Threejs-Punk are
 // redistributed here: its public/ assets are excluded from its MIT license.
-export const CITY_VERSION = '2026-09-city-1';
+export const CITY_VERSION = '2026-09-city-rain-1';
 export const CITY_LIMIT = 98;
 
 export function buildCityWorld( scene, world ) {
@@ -14,6 +15,8 @@ export function buildCityWorld( scene, world ) {
 	const materials = new Map();
 	const cameraObstacles = [];
 	const bodies = [];
+	const emitters = [];
+	const neonColors = [ 0x24dfff, 0xff328c, 0xffbd4a ];
 	const transform = new THREE.Object3D();
 	const unitBox = new THREE.BoxGeometry( 1, 1, 1 );
 	let seed = 260928;
@@ -38,7 +41,11 @@ export function buildCityWorld( scene, world ) {
 	material( 'glass', 0x152e3a, false, { metalness: 0.45, roughness: 0.24 } );
 	material( 'windowAmber', 0xf7c577, true );
 	material( 'windowTeal', 0x67d6c4, true );
-	material( 'neon', 0x3fd5a4, true );
+	for ( let i = 0; i < neonColors.length; i ++ ) {
+		material( 'neon' + i, new THREE.Color( neonColors[ i ] ).multiplyScalar( 4.5 ), true );
+	}
+	materials.get( 'windowTeal' ).color.multiplyScalar( 1.35 );
+	materials.get( 'windowAmber' ).color.multiplyScalar( 1.55 );
 	material( 'stripe', 0xc6c3ad );
 	material( 'lane', 0xd5ae55 );
 	material( 'red', 0xbe554c );
@@ -61,9 +68,11 @@ export function buildCityWorld( scene, world ) {
 		canvas.width = 512;
 		canvas.height = 128;
 		const ctx = canvas.getContext( '2d' );
-		ctx.fillStyle = '#101d28';
+		ctx.fillStyle = '#03070c';
 		ctx.fillRect( 0, 0, 512, 128 );
 		ctx.strokeStyle = accent;
+		ctx.shadowColor = accent;
+		ctx.shadowBlur = 12;
 		ctx.lineWidth = 5;
 		ctx.strokeRect( 5, 5, 502, 118 );
 		ctx.fillStyle = accent;
@@ -79,7 +88,8 @@ export function buildCityWorld( scene, world ) {
 	const labels = [ 'كراج هجولة', 'قهوة الحي', 'عبودين قيمز', 'سوق المدينة' ];
 	for ( let i = 0; i < labels.length; i ++ ) {
 		material( 'sign' + i, 0xffffff, true, {
-			map: labelTexture( labels[ i ], i % 2 ? '#ffd28c' : '#72e5c0' ),
+			map: labelTexture( labels[ i ], [ '#43dcff', '#ff56aa', '#ffca68', '#64e9dd' ][ i ] ),
+			color: new THREE.Color( 3.4, 3.4, 3.4 ),
 		} );
 	}
 
@@ -98,7 +108,7 @@ export function buildCityWorld( scene, world ) {
 	asphaltMap.wrapS = asphaltMap.wrapT = THREE.RepeatWrapping;
 	asphaltMap.repeat.set( 70, 70 );
 	const roadMaterial = new THREE.MeshStandardMaterial( {
-		map: asphaltMap, color: 0x75858e, roughness: 0.54, metalness: 0.05,
+		map: asphaltMap, color: 0x63727f, roughness: 0.25, metalness: 0.16,
 	} );
 	const ground = new THREE.Mesh( new THREE.PlaneGeometry( 260, 260 ), roadMaterial );
 	ground.name = 'city-asphalt';
@@ -111,6 +121,7 @@ export function buildCityWorld( scene, world ) {
 	let buildingCount = 0;
 	function building( x, z, width, depth, height, style ) {
 		const key = 'walls' + ( style % 4 );
+		const neon = 'neon' + style % neonColors.length;
 		block( key, x, height / 2, z, width, height, depth );
 		block( 'roof', x, height + 0.18, z, width + 0.35, 0.36, depth + 0.35 );
 		block( 'concrete', x, 0.45, z, width + 0.2, 0.9, depth + 0.2 );
@@ -136,7 +147,15 @@ export function buildCityWorld( scene, world ) {
 		// Ground-floor shopfronts face the nearest main north/south street.
 		const facing = x < 0 ? 1 : -1;
 		block( 'glass', x + facing * ( width / 2 + 0.04 ), 1.2, z, 0.06, 2.25, depth * 0.7 );
-		block( 'neon', x + facing * ( width / 2 + 0.2 ), 2.6, z, 0.3, 0.1, depth * 0.78 );
+		block( neon, x + facing * ( width / 2 + 0.2 ), 2.6, z, 0.3, 0.12, depth * 0.85 );
+		// Luminous shop canopies, vertical corner strips and roof outlines.
+		for ( const edge of [ -1, 1 ] ) {
+			block( neon, x + facing * ( width / 2 + 0.13 ), 5.3, z + edge * ( depth / 2 - 0.3 ), 0.12, 9, 0.12 );
+			block( neon, x, height + 0.39, z + edge * depth / 2, width, 0.10, 0.10 );
+		}
+		block( neon, x + facing * width / 2, height + 0.39, z, 0.10, 0.10, depth );
+		emitters.push( { x: x + facing * ( width / 2 + 1.1 ), y: 3.1, z,
+			color: neonColors[ style % neonColors.length ], intensity: 150 } );
 		block( 'sign' + style % labels.length, x + facing * ( width / 2 + 0.12 ), 3.15, z,
 			Math.min( 6.5, depth * 0.75 ), 1.05, 0.07, facing * Math.PI / 2 );
 		block( 'metal', x + width * 0.22, height + 0.8, z - depth * 0.2, 2, 1.2, 1.7 );
@@ -194,16 +213,10 @@ export function buildCityWorld( scene, world ) {
 				const x = axis ? p : side * 14.8;
 				const z = axis ? side * 14.8 : p;
 				block( 'metal', x, 3, z, 0.14, 6, 0.14 );
-				block( 'windowAmber', x, 6, z, 1.5, 0.1, 0.7 );
+				block( 'neon2', x, 6, z, 1.5, 0.1, 0.7 );
+				emitters.push( { x, y: 5.7, z, color: 0xffd6a0, intensity: 190 } );
 				collider( x, z, 0.2, 0.2, 6 );
 			}
-		}
-	}
-	for ( const sx of [ -1, 1 ] ) {
-		for ( const sz of [ -1, 1 ] ) {
-			const lamp = new THREE.PointLight( sx === sz ? 0x96e8d6 : 0xffd39b, 35, 36, 2 );
-			lamp.position.set( sx * 13, 5.5, sz * 13 );
-			group.add( lamp );
 		}
 	}
 	// Visible, collidable perimeter keeps every car inside the playable map.
@@ -234,12 +247,16 @@ export function buildCityWorld( scene, world ) {
 		batchCount: group.children.filter( object => object.isInstancedMesh ).length,
 	};
 	scene.add( group );
+	const weather = createCityWeather( group, emitters );
+	group.userData.weather = weather.status;
 	const focus = new THREE.Vector3();
 	const direction = new THREE.Vector3();
 	const hit = new THREE.Vector3();
 	const ray = new THREE.Ray();
 	return {
 		group,
+		update: weather.update,
+		createRenderer: weather.createRenderer,
 		spawn: { position: [ 0, 0.5, -44 ], angle: 0 },
 		resolveCamera( camera, position ) {
 			focus.copy( position );

@@ -38,7 +38,12 @@ inspired exploring a city mode, but **this prototype does not contain its city m
 textures, sounds, or shaders**. Its README explicitly excludes `public/` assets from
 the code's MIT license, and the inspected model contains no licensing metadata.
 Replacing the district with a licensed GLB can be done in `js/City.js`.
-Rain and planar reflections are outside this first driving prototype.
+The city includes GPU rain and ground ripples, luminous neon signs, nearby street
+lights, and animated wet-road reflections. A city-only HDR composer enables bloom;
+the existing renderer's unsigned-byte buffer cannot apply `setEffects()` itself.
+Mobile uses 1,200 rain streaks, 180 splash rings, six nearby lights, and a 256px
+reflection target updated at most 24 times per simulation second. These are
+rendering limits, not a measured device frame-rate guarantee.
 
 The **City prototype checks** workflow exercises menu entry, lazy loading, driving,
 ground contact, building/perimeter collision, camera obstruction, and mobile viewport
