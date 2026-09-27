@@ -5329,7 +5329,7 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 // City geometry and its textures are loaded only when this mode is selected.
 async function startWebMode( options ) {
 	if ( options.city ) {
-		const { buildCityWorld } = await import( './City.js?v=chase-1' );
+		const { buildCityWorld } = await import( './City.js?v=sky-1' );
 		return startNormalMode( { ...options, cityBuilder: buildCityWorld } );
 	}
 	return startNormalMode( options );
@@ -5359,13 +5359,13 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	if ( city ) {
 
 		cityState = cityBuilder( scene, world );
-		scene.background = new THREE.Color( 0x09131f );
-		scene.fog = new THREE.Fog( 0x09131f, 35, 135 );
-		dirLight.color.setHex( 0xb7cfef );
-		dirLight.intensity = 1.25;
-		hemiLight.color.setHex( 0xbed7e7 );
-		hemiLight.groundColor.setHex( 0x344438 );
-		hemiLight.intensity = 1.15;
+		scene.background = new THREE.Color( 0x586b85 );
+		scene.fog = new THREE.Fog( 0x586b85, 50, 155 );
+		dirLight.color.setHex( 0xc7dbff );
+		dirLight.intensity = 2.4;
+		hemiLight.color.setHex( 0xd3e3ff );
+		hemiLight.groundColor.setHex( 0x687382 );
+		hemiLight.intensity = 2.25;
 		bloomPass.strength = 0.36;
 		bloomPass.radius = 0.32;
 		bloomPass.threshold = 1.0;

@@ -52,6 +52,7 @@ try {
 	assert.ok( start.position[ 1 ] > 0.35 && start.position[ 1 ] < 0.7, 'Car must rest on the road' );
 	assert.equal( await page.locator( '#boot-error-overlay' ).count(), 0 );
 	await page.screenshot( { path: 'artifacts/city-desktop.png' } );
+	const preview = await page.screenshot( { type: 'jpeg', quality: 75 } );
 	await page.keyboard.down( 'ArrowUp' );
 	console.log( 'CITY_START ' + JSON.stringify( start ) );
 	await page.waitForFunction( origin => {
@@ -84,7 +85,6 @@ try {
 	assert.ok( Math.abs( turning.cameraForward[ 0 ] ) > 0.5, 'Camera must orbit with the turning car' );
 	await page.screenshot( { path: 'artifacts/city-rear-camera.png' } );
 	reports.push( { device: 'desktop', start, moving, turning } );
-	const preview = await page.screenshot( { type: 'jpeg', quality: 65 } );
 	await page.close();
 
 	// The deep link selects an existing Hajwala car and bypasses mode menus.
@@ -124,7 +124,7 @@ try {
 	// Exercise the actual physics engine against a city perimeter, not a mocked collider.
 	const collision = await mobile.evaluate( async () => {
 		const physics = await import( 'crashcat' );
-		const { buildCityWorld } = await import( './js/City.js?v=chase-1' );
+		const { buildCityWorld } = await import( './js/City.js?v=sky-1' );
 		const THREE = await import( 'three' );
 		const { createSphereBody } = await import( './js/Physics.js' );
 		const settings = physics.createWorldSettings();

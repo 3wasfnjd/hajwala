@@ -19,6 +19,7 @@ jobs:
           node --check --experimental-default-type=module js/main.js
           node --check --experimental-default-type=module js/City.js
           node --check --experimental-default-type=module js/CityWeather.js
+          node --check --experimental-default-type=module js/CitySky.js
           node --check --experimental-default-type=module js/Camera.js
       - name: Install browser test dependencies
         run: npm install --no-save --no-package-lock playwright@1.58.2
