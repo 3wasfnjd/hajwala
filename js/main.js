@@ -5329,7 +5329,7 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 // City geometry and its textures are loaded only when this mode is selected.
 async function startWebMode( options ) {
 	if ( options.city ) {
-		const { buildCityWorld } = await import( './City.js?v=city-1' );
+		const { buildCityWorld } = await import( './City.js?v=rain-1' );
 		return startNormalMode( { ...options, cityBuilder: buildCityWorld } );
 	}
 	return startNormalMode( options );
@@ -5359,16 +5359,16 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	if ( city ) {
 
 		cityState = cityBuilder( scene, world );
-		scene.background = new THREE.Color( 0x101927 );
-		scene.fog = new THREE.Fog( 0x101927, 65, 180 );
+		scene.background = new THREE.Color( 0x09131f );
+		scene.fog = new THREE.Fog( 0x09131f, 35, 135 );
 		dirLight.color.setHex( 0xb7cfef );
-		dirLight.intensity = 1.9;
+		dirLight.intensity = 1.25;
 		hemiLight.color.setHex( 0xbed7e7 );
 		hemiLight.groundColor.setHex( 0x344438 );
-		hemiLight.intensity = 1.3;
-		bloomPass.strength = 0.12;
-		bloomPass.radius = 0.15;
-		bloomPass.threshold = 0.85;
+		hemiLight.intensity = 1.15;
+		bloomPass.strength = 0.36;
+		bloomPass.radius = 0.32;
+		bloomPass.threshold = 1.0;
 		vehicleSpawn = cityState.spawn;
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
 
@@ -5701,10 +5701,16 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// deadzone/lead system every other mode already uses (just aimed
 	// from behind instead of from the isometric diagonal): the camera's
 	// own facing never changes, only its position follows.
-	const cam = city ? new Camera( { offset: new THREE.Vector3( 0, 7, -12 ), far: 200, near: 0.2, fov: 58 } )
+	const cam = city ? new Camera( { offset: new THREE.Vector3( 0, 3.6, -9 ), far: 160, near: 0.2, fov: 60 } )
 		: freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
 		: highway ? new Camera( { offset: new THREE.Vector3( 0, 2, -10 ), far: 200, near: 1, fov: 55 } )
 		: new Camera();
+	if ( city ) {
+		cam.leadFactor = 1.2;
+		cam.deadzoneRadius = 2.5;
+		cam.screenShiftUp = 0.3;
+	}
+	const renderCity = cityState?.createRenderer( renderer, scene, cam.camera, bloomPass );
 	scene.add( cam.debug );
 
 	const controls = new Controls();
@@ -5939,9 +5945,13 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
-			if ( cityState ) cityState.resolveCamera( cam.camera, vehicle.spherePos );
-
-			renderer.render( scene, cam.camera );
+			if ( cityState ) {
+				cityState.resolveCamera( cam.camera, vehicle.spherePos );
+				cityState.update( dt, vehicle.spherePos );
+				renderCity( dt );
+			} else {
+				renderer.render( scene, cam.camera );
+			}
 
 		}
 

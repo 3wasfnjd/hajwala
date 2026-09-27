@@ -28,6 +28,9 @@ const reports = [];
 try {
 	const page = await browser.newPage( { viewport: { width: 960, height: 540 } } );
 	page.on( 'pageerror', error => errors.push( String( error ) ) );
+	page.on( 'console', message => {
+		if ( /Shader Error|VALIDATE_STATUS|GL_INVALID/.test( message.text() ) ) errors.push( message.text() );
+	} );
 	let cityRequested = false;
 	page.on( 'request', request => {
 		if ( request.url().includes( '/js/City.js' ) ) cityRequested = true;
@@ -37,11 +40,14 @@ try {
 	assert.equal( cityRequested, false, 'City module must not load before selection' );
 	await page.locator( '.hw-web-btn' ).click();
 	await page.locator( '.hw-web-city-btn' ).click();
-	await page.waitForFunction( () => window.__hajwalaCity?.snapshot().frame > 10, null, { timeout: 120000 } );
+	await page.waitForFunction( () => window.__hajwalaCity?.snapshot().weather?.weatherTime > 0.4, null, { timeout: 120000 } );
 	const start = await page.evaluate( () => window.__hajwalaCity.snapshot() );
 	assert.equal( start.buildingCount, 36 );
 	assert.ok( start.colliderCount >= 40 );
 	assert.ok( start.batchCount <= 24 );
+	assert.ok( start.weather.rainCount >= 1200 && start.weather.splashCount >= 180 );
+	assert.equal( start.weather.bloom, true );
+	assert.ok( start.weather.reflectionFrames > 0, 'Wet road must render actual reflections' );
 	assert.ok( start.position.every( Number.isFinite ) );
 	assert.ok( start.position[ 1 ] > 0.35 && start.position[ 1 ] < 0.7, 'Car must rest on the road' );
 	assert.equal( await page.locator( '#boot-error-overlay' ).count(), 0 );
@@ -58,6 +64,7 @@ try {
 	assert.ok( Math.hypot( moving.position[ 0 ] - start.position[ 0 ], moving.position[ 2 ] - start.position[ 2 ] ) > 2,
 		'Existing vehicle controls must move the car' );
 	assert.ok( moving.position[ 1 ] > 0.25 && moving.position[ 1 ] < 1, 'Car must stay on ground while driving' );
+	assert.ok( moving.weather.weatherTime > start.weather.weatherTime, 'Rain must animate while driving' );
 	await page.screenshot( { path: 'artifacts/city-driving.png' } );
 	reports.push( { device: 'desktop', start, moving } );
 	const preview = await page.screenshot( { type: 'jpeg', quality: 65 } );
@@ -66,11 +73,15 @@ try {
 	// The deep link selects an existing Hajwala car and bypasses mode menus.
 	const mobile = await browser.newPage( { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } );
 	mobile.on( 'pageerror', error => errors.push( String( error ) ) );
+	mobile.on( 'console', message => {
+		if ( /Shader Error|VALIDATE_STATUS|GL_INVALID/.test( message.text() ) ) errors.push( message.text() );
+	} );
 	await mobile.goto( 'http://127.0.0.1:4173/?mode=city&vehicle=vehicle-camry&debug=city',
 		{ waitUntil: 'domcontentloaded' } );
-	await mobile.waitForFunction( () => window.__hajwalaCity?.snapshot().frame > 10, null, { timeout: 120000 } );
+	await mobile.waitForFunction( () => window.__hajwalaCity?.snapshot().weather?.weatherTime > 0.4, null, { timeout: 120000 } );
 	const mobileState = await mobile.evaluate( () => window.__hajwalaCity.snapshot() );
 	assert.equal( mobileState.vehicleKey, 'vehicle-camry' );
+	assert.ok( mobileState.weather.reflectionSize <= 256 && mobileState.weather.localLights <= 6 );
 	assert.ok( mobileState.position.every( Number.isFinite ) );
 	assert.equal( await mobile.locator( '#hajwalah-menu' ).count(), 0 );
 	assert.equal( await mobile.locator( '#boot-error-overlay' ).count(), 0 );
@@ -80,7 +91,7 @@ try {
 	// Exercise the actual physics engine against a city perimeter, not a mocked collider.
 	const collision = await mobile.evaluate( async () => {
 		const physics = await import( 'crashcat' );
-		const { buildCityWorld } = await import( './js/City.js?v=city-1' );
+		const { buildCityWorld } = await import( './js/City.js?v=rain-1' );
 		const THREE = await import( 'three' );
 		const { createSphereBody } = await import( './js/Physics.js' );
 		const settings = physics.createWorldSettings();
