@@ -18,3 +18,28 @@ An Arabic-localized browser drift/racing game built with JavaScript and three.js
 - Original game assets by [Kenney](https://kenney.nl/) (CC0)
 - Physics engine: [crashcat](https://github.com/isaac-mason/crashcat)
 - Built with [Claude](https://claude.ai/) by ABODEN GAMES
+
+## City mode (experimental)
+
+Choose **WEB → المدينة**, or open [the city directly](https://3wasfnjd.github.io/hajwala/?mode=city).
+The direct link starts with the existing Camry; select a different car from the regular menu,
+or pass its existing vehicle key with `?mode=city&vehicle=vehicle-jeep`.
+
+- Original compact night district: 36 buildings, connected streets, a continuous outer loop,
+  and a central drift space.
+- Reuses Hajwala's vehicles, controls, crashcat physics, headlights, sound, and handbrake.
+- Static collision for buildings, raised sidewalks, posts, and the visible perimeter.
+- Camera obstruction handling; city tire marks fade after nine seconds.
+- City module and generated textures are created only after choosing this mode.
+- Repeated geometry is instanced by material; no new downloaded model or texture assets.
+
+Threejs-Punk ([threejs-conference](https://github.com/ektogamat/threejs-conference))
+inspired exploring a city mode, but **this prototype does not contain its city model,
+textures, sounds, or shaders**. Its README explicitly excludes `public/` assets from
+the code's MIT license, and the inspected model contains no licensing metadata.
+Replacing the district with a licensed GLB can be done in `js/City.js`.
+Rain and planar reflections are outside this first driving prototype.
+
+The **City prototype checks** workflow exercises menu entry, lazy loading, driving,
+ground contact, building/perimeter collision, camera obstruction, and mobile viewport
+rendering. Its screenshots are test artifacts, not a measurement of real iPhone performance.
