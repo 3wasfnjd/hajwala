@@ -94,7 +94,9 @@ try {
 		world._OL_MOVING = movingObject;
 		world._OL_STATIC = staticObject;
 		const city = buildCityWorld( new THREE.Scene(), world );
-		const body = createSphereBody( world, [ 0, 0.5, 93 ] );
+		// Start above an empty perimeter section so curb friction or a facade
+		// cannot satisfy the wall assertion before the body reaches the wall.
+		const body = createSphereBody( world, [ 77, 3, 96 ] );
 		physics.rigidBody.setLinearVelocity( world, body, [ 0, 0, 22 ] );
 		for ( let i = 0; i < 120; i ++ ) physics.updateWorld( world, {}, 1 / 120 );
 		const boundary = Array.from( body.position );
@@ -102,12 +104,13 @@ try {
 		camera.position.set( 25, 5, 36 );
 		city.resolveCamera( camera, new THREE.Vector3( 25, 0.5, 12 ) );
 		const cameraPosition = camera.position.toArray();
-		physics.rigidBody.setPosition( world, body, [ 25, 0.5, 12 ], true );
-		physics.rigidBody.setLinearVelocity( world, body, [ 0, 0, 22 ] );
+		// Approach above the sidewalk to isolate the building collision.
+		const buildingBody = createSphereBody( world, [ 25, 3, 12 ] );
+		physics.rigidBody.setLinearVelocity( world, buildingBody, [ 0, 0, 22 ] );
 		for ( let i = 0; i < 120; i ++ ) physics.updateWorld( world, {}, 1 / 120 );
-		return { boundary, building: Array.from( body.position ), camera: cameraPosition };
+		return { boundary, building: Array.from( buildingBody.position ), camera: cameraPosition };
 	} );
-	assert.ok( collision.boundary[ 2 ] < 98 && collision.boundary[ 2 ] > 90, 'Perimeter must stop the vehicle body' );
+	assert.ok( collision.boundary[ 2 ] < 97.15 && collision.boundary[ 2 ] > 94, 'Perimeter must stop the vehicle body' );
 	assert.ok( collision.building[ 2 ] < 19, 'Building collider must stop the vehicle body' );
 	assert.ok( collision.camera[ 2 ] < 20, 'Camera must stop before entering a building' );
 	assert.ok( collision.boundary.every( Number.isFinite ) && collision.building.every( Number.isFinite ) );
