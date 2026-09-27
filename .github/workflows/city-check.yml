@@ -1,0 +1,28 @@
+name: City prototype checks
+on:
+  push:
+    branches: ["codex/hajwala-city"]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect source city metadata
+        run: |
+          python3 - <<'PY'
+          import json, struct, urllib.request
+          url = "https://raw.githubusercontent.com/ektogamat/threejs-conference/8cc20593b2270e2ce832e7b7b44356705daddec4/public/models/cyberpunk_compressed.glb"
+          data = urllib.request.urlopen(url, timeout=60).read()
+          assert data[:4] == b"glTF"
+          size = struct.unpack_from("<I", data, 12)[0]
+          gltf = json.loads(data[20:20+size])
+          print("CITY_ASSET", json.dumps(gltf.get("asset", {})))
+          print("CITY_EXTRAS", json.dumps(gltf.get("extras", {})))
+          print("CITY_EXTENSIONS", json.dumps(gltf.get("extensionsUsed", [])))
+          print("CITY_NODES", json.dumps(gltf.get("nodes", [])))
+          print("CITY_BOUNDS", json.dumps([{"min": a.get("min"), "max": a.get("max"), "count": a.get("count")} for a in gltf.get("accessors", []) if a.get("type") == "VEC3" and "min" in a]))
+          print("CITY_MATERIALS", json.dumps([{"name": m.get("name"), "extras": m.get("extras")} for m in gltf.get("materials", [])]))
+          PY
