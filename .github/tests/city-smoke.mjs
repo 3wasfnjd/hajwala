@@ -66,7 +66,24 @@ try {
 	assert.ok( moving.position[ 1 ] > 0.25 && moving.position[ 1 ] < 1, 'Car must stay on ground while driving' );
 	assert.ok( moving.weather.weatherTime > start.weather.weatherTime, 'Rain must animate while driving' );
 	await page.screenshot( { path: 'artifacts/city-driving.png' } );
-	reports.push( { device: 'desktop', start, moving } );
+	await page.keyboard.down( 'ArrowUp' );
+	await page.keyboard.down( 'ArrowLeft' );
+	await page.waitForFunction( () => {
+		const state = window.__hajwalaCity.snapshot();
+		return Math.abs( Math.atan2( state.vehicleForward[ 0 ], state.vehicleForward[ 2 ] ) ) > 0.9;
+	}, null, { timeout: 90000 } );
+	await page.keyboard.up( 'ArrowLeft' );
+	await page.keyboard.up( 'ArrowUp' );
+	await page.waitForFunction( () => {
+		const state = window.__hajwalaCity.snapshot();
+		const dx = state.camera[ 0 ] - state.position[ 0 ], dz = state.camera[ 2 ] - state.position[ 2 ];
+		const aligned = state.cameraForward[ 0 ] * state.vehicleForward[ 0 ] + state.cameraForward[ 2 ] * state.vehicleForward[ 2 ];
+		return aligned > 0.98 && ( dx * state.vehicleForward[ 0 ] + dz * state.vehicleForward[ 2 ] ) / Math.hypot( dx, dz ) < -0.85;
+	}, null, { timeout: 90000 } );
+	const turning = await page.evaluate( () => window.__hajwalaCity.snapshot() );
+	assert.ok( Math.abs( turning.cameraForward[ 0 ] ) > 0.5, 'Camera must orbit with the turning car' );
+	await page.screenshot( { path: 'artifacts/city-rear-camera.png' } );
+	reports.push( { device: 'desktop', start, moving, turning } );
 	const preview = await page.screenshot( { type: 'jpeg', quality: 65 } );
 	await page.close();
 
@@ -87,6 +104,22 @@ try {
 	assert.equal( await mobile.locator( '#boot-error-overlay' ).count(), 0 );
 	await mobile.screenshot( { path: 'artifacts/city-mobile.png' } );
 	reports.push( { device: 'mobile-emulation', state: mobileState } );
+	// Touch-up must point along the camera after turns, including the ±PI seam.
+	const touchDirections = await mobile.evaluate( async () => {
+		const { Camera } = await import( './js/Camera.js?v=city-chase-1' );
+		const { Controls } = await import( './js/Controls.js' );
+		const THREE = await import( 'three' );
+		const cam = new Camera( { followVehicle: true, offset: new THREE.Vector3( 0, 3, -7.5 ) } );
+		const target = new THREE.Vector3( 0, 0.5, 0 ), velocity = new THREE.Vector3();
+		const orientation = new THREE.Quaternion(), up = new THREE.Vector3( 0, 1, 0 );
+		return [ 0, Math.PI / 2, Math.PI - 0.01, -Math.PI + 0.01 ].map( heading => {
+			orientation.setFromAxisAngle( up, heading );
+			for ( let i = 0; i < 90; i ++ ) cam.update( 1 / 60, target, velocity, orientation );
+			const input = Controls.prototype.update.call( { keys: {}, touchActive: true, touchDirX: 0, touchDirY: -1 }, cam.controlAngle );
+			return input.x * cam.camForwardXZ.x + input.z * cam.camForwardXZ.z;
+		} );
+	} );
+	assert.ok( touchDirections.every( alignment => alignment > 0.999 ), 'Touch steering must remain aligned with the rear camera' );
 
 	// Exercise the actual physics engine against a city perimeter, not a mocked collider.
 	const collision = await mobile.evaluate( async () => {
