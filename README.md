@@ -29,7 +29,8 @@ or pass its existing vehicle key with `?mode=city&vehicle=vehicle-jeep`.
   and a central drift space.
 - Reuses Hajwala's vehicles, controls, crashcat physics, headlights, sound, and handbrake.
 - Static collision for buildings, raised sidewalks, posts, and the visible perimeter.
-- Camera obstruction handling; city tire marks fade after nine seconds.
+- Rear camera smoothly follows the car's heading, with matching touch steering and
+  building obstruction handling; city tire marks fade after nine seconds.
 - City module and generated textures are created only after choosing this mode.
 - Repeated geometry is instanced by material; no new downloaded model or texture assets.
 

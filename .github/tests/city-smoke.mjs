@@ -66,7 +66,24 @@ try {
 	assert.ok( moving.position[ 1 ] > 0.25 && moving.position[ 1 ] < 1, 'Car must stay on ground while driving' );
 	assert.ok( moving.weather.weatherTime > start.weather.weatherTime, 'Rain must animate while driving' );
 	await page.screenshot( { path: 'artifacts/city-driving.png' } );
-	reports.push( { device: 'desktop', start, moving } );
+	await page.keyboard.down( 'ArrowUp' );
+	await page.keyboard.down( 'ArrowLeft' );
+	await page.waitForFunction( () => {
+		const state = window.__hajwalaCity.snapshot();
+		return Math.abs( Math.atan2( state.vehicleForward[ 0 ], state.vehicleForward[ 2 ] ) ) > 0.9;
+	}, null, { timeout: 90000 } );
+	await page.keyboard.up( 'ArrowLeft' );
+	await page.keyboard.up( 'ArrowUp' );
+	await page.waitForFunction( () => {
+		const state = window.__hajwalaCity.snapshot();
+		const dx = state.camera[ 0 ] - state.position[ 0 ], dz = state.camera[ 2 ] - state.position[ 2 ];
+		const aligned = state.cameraForward[ 0 ] * state.vehicleForward[ 0 ] + state.cameraForward[ 2 ] * state.vehicleForward[ 2 ];
+		return aligned > 0.98 && ( dx * state.vehicleForward[ 0 ] + dz * state.vehicleForward[ 2 ] ) / Math.hypot( dx, dz ) < -0.85;
+	}, null, { timeout: 90000 } );
+	const turning = await page.evaluate( () => window.__hajwalaCity.snapshot() );
+	assert.ok( Math.abs( turning.cameraForward[ 0 ] ) > 0.5, 'Camera must orbit with the turning car' );
+	await page.screenshot( { path: 'artifacts/city-rear-camera.png' } );
+	reports.push( { device: 'desktop', start, moving, turning } );
 	const preview = await page.screenshot( { type: 'jpeg', quality: 65 } );
 	await page.close();
 
@@ -87,11 +104,27 @@ try {
 	assert.equal( await mobile.locator( '#boot-error-overlay' ).count(), 0 );
 	await mobile.screenshot( { path: 'artifacts/city-mobile.png' } );
 	reports.push( { device: 'mobile-emulation', state: mobileState } );
+	// Touch-up must point along the camera after turns, including the ±PI seam.
+	const touchDirections = await mobile.evaluate( async () => {
+		const { Camera } = await import( './js/Camera.js?v=city-chase-1' );
+		const { Controls } = await import( './js/Controls.js' );
+		const THREE = await import( 'three' );
+		const cam = new Camera( { followVehicle: true, offset: new THREE.Vector3( 0, 3, -7.5 ) } );
+		const target = new THREE.Vector3( 0, 0.5, 0 ), velocity = new THREE.Vector3();
+		const orientation = new THREE.Quaternion(), up = new THREE.Vector3( 0, 1, 0 );
+		return [ 0, Math.PI / 2, Math.PI - 0.01, -Math.PI + 0.01 ].map( heading => {
+			orientation.setFromAxisAngle( up, heading );
+			for ( let i = 0; i < 90; i ++ ) cam.update( 1 / 60, target, velocity, orientation );
+			const input = Controls.prototype.update.call( { keys: {}, touchActive: true, touchDirX: 0, touchDirY: -1 }, cam.controlAngle );
+			return input.x * cam.camForwardXZ.x + input.z * cam.camForwardXZ.z;
+		} );
+	} );
+	assert.ok( touchDirections.every( alignment => alignment > 0.999 ), 'Touch steering must remain aligned with the rear camera' );
 
 	// Exercise the actual physics engine against a city perimeter, not a mocked collider.
 	const collision = await mobile.evaluate( async () => {
 		const physics = await import( 'crashcat' );
-		const { buildCityWorld } = await import( './js/City.js?v=rain-1' );
+		const { buildCityWorld } = await import( './js/City.js?v=chase-1' );
 		const THREE = await import( 'three' );
 		const { createSphereBody } = await import( './js/Physics.js' );
 		const settings = physics.createWorldSettings();
@@ -115,15 +148,19 @@ try {
 		camera.position.set( 25, 5, 36 );
 		city.resolveCamera( camera, new THREE.Vector3( 25, 0.5, 12 ) );
 		const cameraPosition = camera.position.toArray();
+		camera.position.set( 25, 3.5, 22 );
+		city.resolveCamera( camera, new THREE.Vector3( 25, 0.5, 16.3 ) );
+		const closeCameraPosition = camera.position.toArray();
 		// Approach above the sidewalk to isolate the building collision.
 		const buildingBody = createSphereBody( world, [ 25, 3, 12 ] );
 		physics.rigidBody.setLinearVelocity( world, buildingBody, [ 0, 0, 22 ] );
 		for ( let i = 0; i < 120; i ++ ) physics.updateWorld( world, {}, 1 / 120 );
-		return { boundary, building: Array.from( buildingBody.position ), camera: cameraPosition };
+		return { boundary, building: Array.from( buildingBody.position ), camera: cameraPosition, closeCamera: closeCameraPosition };
 	} );
 	assert.ok( collision.boundary[ 2 ] < 97.15 && collision.boundary[ 2 ] > 94, 'Perimeter must stop the vehicle body' );
 	assert.ok( collision.building[ 2 ] < 19, 'Building collider must stop the vehicle body' );
 	assert.ok( collision.camera[ 2 ] < 20, 'Camera must stop before entering a building' );
+	assert.ok( collision.closeCamera[ 2 ] < 16.65, 'Camera must also stay outside a wall when the car is close to it' );
 	assert.ok( collision.boundary.every( Number.isFinite ) && collision.building.every( Number.isFinite ) );
 	reports.push( { collision } );
 

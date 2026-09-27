@@ -35,7 +35,8 @@ export class Camera {
 	// view (small offset.y relative to distance) needs a wider FOV to
 	// still show the full road width up close, matching a typical arcade
 	// racer's expansive low camera instead of a narrow telephoto look.
-	constructor( { distanceScale = 1, far = 60, near = 0.1, offset = null, fov = 40 } = {} ) {
+	// followVehicle opts the city into a rotating rear chase camera.
+	constructor( { distanceScale = 1, far = 60, near = 0.1, offset = null, fov = 40, followVehicle = false } = {} ) {
 
 		this.camera = new THREE.PerspectiveCamera( fov, window.innerWidth / window.innerHeight, near, far );
 
@@ -58,6 +59,10 @@ export class Camera {
 
 		this.smoothedDesired = new THREE.Vector3();
 		this.initialized = false;
+		this.followVehicle = followVehicle;
+		this.followYaw = 0;
+		this.lastTarget = new THREE.Vector3();
+		this.vehicleForward = new THREE.Vector3();
 
 		const segments = 64;
 		const points = [];
@@ -84,7 +89,45 @@ export class Camera {
 
 	}
 
-	update( dt, target, velocity ) {
+	get controlAngle() {
+
+		return Math.atan2( -this.camForwardXZ.x, -this.camForwardXZ.z );
+
+	}
+
+	updateChase( dt, target, velocity, orientation ) {
+
+		this.vehicleForward.set( 0, 0, 1 ).applyQuaternion( orientation );
+		const heading = Math.atan2( this.vehicleForward.x, this.vehicleForward.z );
+		const reset = ! this.initialized || this.lastTarget.distanceToSquared( target ) > 400;
+		if ( reset ) {
+			this.followYaw = heading;
+			this.smoothedDesired.copy( target );
+		} else {
+			// The shortest arc avoids a full camera spin at the ±180° seam.
+			const turn = Math.atan2( Math.sin( heading - this.followYaw ), Math.cos( heading - this.followYaw ) );
+			this.followYaw += turn * ( 1 - Math.exp( -7 * dt ) );
+			this.smoothedDesired.lerp( target, 1 - Math.exp( -12 * dt ) );
+		}
+		this.camForwardXZ.set( Math.sin( this.followYaw ), 0, Math.cos( this.followYaw ) );
+		this.camRightXZ.set( -this.camForwardXZ.z, 0, this.camForwardXZ.x );
+		this.camera.position.copy( this.smoothedDesired )
+			.addScaledVector( this.camForwardXZ, -Math.hypot( this.offset.x, this.offset.z ) );
+		this.camera.position.y += this.offset.y;
+		_lookPoint.copy( target ).addScaledVector( this.camForwardXZ, 1.2 + Math.min( velocity.length() * 0.25, 1.1 ) );
+		_lookPoint.y += 0.45;
+		this.camera.lookAt( _lookPoint );
+		this.lastTarget.copy( target );
+		this.initialized = true;
+
+	}
+
+	update( dt, target, velocity, orientation = null ) {
+
+		if ( this.followVehicle && orientation ) {
+			this.updateChase( dt, target, velocity, orientation );
+			return;
+		}
 
 		const radius = this.deadzoneRadius;
 		const radiusSq = radius * radius;

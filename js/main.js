@@ -12,7 +12,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 // (RoomEnvironment import removed — replaced by buildARColorEnvironmentScene below.)
 import { createWorldSettings, createWorld, addBroadphaseLayer, addObjectLayer, enableCollision, registerAll, updateWorld, rigidBody, box, cylinder, MotionType } from 'crashcat';
 import { Vehicle, MAX_SPEED } from './Vehicle.js';
-import { Camera } from './Camera.js';
+import { Camera } from './Camera.js?v=city-chase-1';
 import { Controls } from './Controls.js';
 import { buildTrack, decodeCells, computeSpawnPosition, computeTrackBounds, computeTrackPath, NPC_TRUCKS, TRACK_CELLS } from './Track.js';
 import { updateRaceAIDrivers, updateFreeRoamAIDrivers, TOTAL_RACE_LAPS } from './AIController.js';
@@ -5329,7 +5329,7 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 // City geometry and its textures are loaded only when this mode is selected.
 async function startWebMode( options ) {
 	if ( options.city ) {
-		const { buildCityWorld } = await import( './City.js?v=rain-1' );
+		const { buildCityWorld } = await import( './City.js?v=chase-1' );
 		return startNormalMode( { ...options, cityBuilder: buildCityWorld } );
 	}
 	return startNormalMode( options );
@@ -5701,15 +5701,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// deadzone/lead system every other mode already uses (just aimed
 	// from behind instead of from the isometric diagonal): the camera's
 	// own facing never changes, only its position follows.
-	const cam = city ? new Camera( { offset: new THREE.Vector3( 0, 3.6, -9 ), far: 160, near: 0.2, fov: 60 } )
+	const cam = city ? new Camera( { offset: new THREE.Vector3( 0, 3, -7.5 ), far: 160, near: 0.2, fov: 60, followVehicle: true } )
 		: freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
 		: highway ? new Camera( { offset: new THREE.Vector3( 0, 2, -10 ), far: 200, near: 1, fov: 55 } )
 		: new Camera();
-	if ( city ) {
-		cam.leadFactor = 1.2;
-		cam.deadzoneRadius = 2.5;
-		cam.screenShiftUp = 0.3;
-	}
 	const renderCity = cityState?.createRenderer( renderer, scene, cam.camera, bloomPass );
 	scene.add( cam.debug );
 
@@ -5760,6 +5755,9 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 				calls: renderer.info.render.calls,
 				triangles: renderer.info.render.triangles,
 				camera: cam.camera.position.toArray(),
+				cameraForward: cam.camForwardXZ.toArray(),
+				vehicleForward: new THREE.Vector3( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).toArray(),
+				controlAngle: cam.controlAngle,
 			} ),
 		} );
 	}
@@ -5844,7 +5842,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			// — see Controls.update()'s own comment on why the touch
 			// joystick's "up" needs to match whichever angle the current
 			// camera treats as "ahead".
-			const rawInput = controls.update( highway || city ? Math.PI : undefined );
+			const rawInput = controls.update( city ? cam.controlAngle : highway ? Math.PI : undefined );
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
@@ -5944,7 +5942,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
-			cam.update( dt, vehicle.spherePos, _camLead );
+			cam.update( dt, vehicle.spherePos, _camLead, city ? vehicle.container.quaternion : null );
 			if ( cityState ) {
 				cityState.resolveCamera( cam.camera, vehicle.spherePos );
 				cityState.update( dt, vehicle.spherePos );

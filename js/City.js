@@ -272,7 +272,7 @@ export function buildCityWorld( scene, world ) {
 				if ( ray.intersectBox( bounds, hit ) ) allowed = Math.min( allowed, focus.distanceTo( hit ) - 0.4 );
 			}
 			if ( allowed < distance ) {
-				camera.position.copy( focus ).addScaledVector( direction, Math.max( 1.2, allowed ) );
+				camera.position.copy( focus ).addScaledVector( direction, Math.max( 0.15, allowed ) );
 				camera.lookAt( focus );
 			}
 		},
