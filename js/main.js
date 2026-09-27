@@ -720,6 +720,8 @@ function createModeMenu( { arAvailable } ) {
 			}
 			#hajwalah-menu .hw-car-dots span.active { border-color: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.55); }
 			#hajwalah-menu .hw-modes { display: flex; gap: 2px; border-top: 1px solid rgba(255,255,255,0.1); }
+			#hajwalah-menu .hw-step-web .hw-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+			#hajwalah-menu .hw-web-city-btn { box-shadow: 0 0 0 1px rgba(80,215,160,0.4) inset; }
 			#hajwalah-menu .hw-mode-card {
 				flex: 1; position: relative; padding: 16px 8px 14px; text-align: center; cursor: pointer;
 				overflow: hidden; border: none; color: #fff;
@@ -863,6 +865,13 @@ function createModeMenu( { arAvailable } ) {
 								</svg>
 								<div class="hw-m-label">الوضع الحر</div>
 								<div class="hw-m-sub">تحكم حر بدون مضمار</div>
+							</button>
+							<button class="hw-mode-card hw-web-city-btn">
+								<svg viewBox="0 0 24 24" fill="none" stroke="#65dab0" stroke-width="1.6" aria-hidden="true">
+									<path d="M3 21V9h6V3h6v10h6v8M1 21h22M5 12h2M5 16h2M11 6h2M11 10h2M11 14h2M17 16h2"/>
+								</svg>
+								<div class="hw-m-label">المدينة</div>
+								<div class="hw-m-sub">شوارع وساحة تفحيط · تجريبي</div>
 							</button>
 							<button class="hw-mode-card hw-web-highway-btn">
 								<svg viewBox="0 0 24 24" fill="none" stroke="#e0b45b" stroke-width="1.6">
@@ -1055,6 +1064,7 @@ function createModeMenu( { arAvailable } ) {
 		const webTrackBtn = menu.querySelector( '.hw-web-track-btn' );
 		const webFreeBtn = menu.querySelector( '.hw-web-free-btn' );
 		const webHighwayBtn = menu.querySelector( '.hw-web-highway-btn' );
+		const webCityBtn = menu.querySelector( '.hw-web-city-btn' );
 		const backLinkWeb = menu.querySelector( '.hw-back-link-web' );
 
 		function revealStepWeb() {
@@ -1085,7 +1095,7 @@ function createModeMenu( { arAvailable } ) {
 			menu.remove();
 			resolve( {
 				choice: 'normal', customText: customTextValue.trim(),
-				freeRoam: variant === 'freeroam', highway: variant === 'highway',
+				freeRoam: variant === 'freeroam', highway: variant === 'highway', city: variant === 'city',
 				vehicleKey: VEHICLE_OPTIONS[ selectedVehicleIndex ].key, flagImage: flagImageDataUrl,
 			} );
 
@@ -1094,6 +1104,7 @@ function createModeMenu( { arAvailable } ) {
 		webTrackBtn.addEventListener( 'click', () => chooseWeb( 'track' ) );
 		webFreeBtn.addEventListener( 'click', () => chooseWeb( 'freeroam' ) );
 		webHighwayBtn.addEventListener( 'click', () => chooseWeb( 'highway' ) );
+		webCityBtn.addEventListener( 'click', () => chooseWeb( 'city' ) );
 
 		// AR now goes straight into the session — which of the three AR
 		// experiences (room-drive / floating track / floating arena) is
@@ -5315,14 +5326,23 @@ function updateWolfEncounter( encounter, dt, playerZ ) {
 
 // ─── NORMAL MODE (unchanged behavior from the original game) ──
 
-function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, highway, vehicleKey, flagImage } ) {
+// City geometry and its textures are loaded only when this mode is selected.
+async function startWebMode( options ) {
+	if ( options.city ) {
+		const { buildCityWorld } = await import( './City.js?v=city-1' );
+		return startNormalMode( { ...options, cityBuilder: buildCityWorld } );
+	}
+	return startNormalMode( options );
+}
+
+function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, highway, city = false, cityBuilder, vehicleKey, flagImage } ) {
 
 	// "إنشاء مضمار جديد" only makes sense for the classic GridMap track —
 	// free-roam and الطريق have no track to edit, so the link is just
 	// noise there. Every exit path (home button, restart, results-menu)
 	// does a full page navigation, which reloads index.html and brings
 	// the link straight back — no need to ever re-show it from here.
-	if ( freeRoam || highway ) {
+	if ( freeRoam || highway || city ) {
 
 		const editorLink = document.getElementById( 'editor-link' );
 		if ( editorLink ) editorLink.style.display = 'none';
@@ -5334,8 +5354,25 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	let trackPath = null, aiDrivers = [], aiExtras = [];
 	let freeRoamHalf = 0;
 	let highwayState = null;
+	let cityState = null;
 
-	if ( highway ) {
+	if ( city ) {
+
+		cityState = cityBuilder( scene, world );
+		scene.background = new THREE.Color( 0x101927 );
+		scene.fog = new THREE.Fog( 0x101927, 65, 180 );
+		dirLight.color.setHex( 0xb7cfef );
+		dirLight.intensity = 1.9;
+		hemiLight.color.setHex( 0xbed7e7 );
+		hemiLight.groundColor.setHex( 0x344438 );
+		hemiLight.intensity = 1.3;
+		bloomPass.strength = 0.12;
+		bloomPass.radius = 0.15;
+		bloomPass.threshold = 0.85;
+		vehicleSpawn = cityState.spawn;
+		sphereBody = createSphereBody( world, vehicleSpawn.position );
+
+	} else if ( highway ) {
 
 		highwayState = buildHighwayWorld( scene, models, world );
 		// Spawn on the rightmost lane of the -X carriageway (the OTHER
@@ -5606,6 +5643,10 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	}
 	vehicle.rigidBody = sphereBody;
 	vehicle.physicsWorld = world;
+	if ( city && vehicleSpawn ) {
+		vehicle.spawnPos = vehicleSpawn.position.slice();
+		vehicle.spawnAngle = vehicleSpawn.angle;
+	}
 
 	if ( vehicleSpawn ) {
 
@@ -5660,7 +5701,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// deadzone/lead system every other mode already uses (just aimed
 	// from behind instead of from the isometric diagonal): the camera's
 	// own facing never changes, only its position follows.
-	const cam = freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
+	const cam = city ? new Camera( { offset: new THREE.Vector3( 0, 7, -12 ), far: 200, near: 0.2, fov: 58 } )
+		: freeRoam ? new Camera( { distanceScale: 1.8, far: 250, near: 2 } )
 		: highway ? new Camera( { offset: new THREE.Vector3( 0, 2, -10 ), far: 200, near: 1, fov: 55 } )
 		: new Camera();
 	scene.add( cam.debug );
@@ -5684,14 +5726,14 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	// السيارة"). Multiplying by HW_VEHICLE_SCALE keeps it proportional to
 	// the car again while keeping the same "light cruising trail" look
 	// (still noticeably lighter than the classic track's scale of 1).
-	const particles = new SmokeTrails( scene, highway ? 0.35 * HW_VEHICLE_SCALE : 1, highway ? 0.18 : 1 );
+	const particles = new SmokeTrails( scene, city ? 0.55 : highway ? 0.35 * HW_VEHICLE_SCALE : 1, city ? 0.35 : highway ? 0.18 : 1 );
 	// AI cars share ONE dedicated, deliberately light smoke emitter — same
 	// idea as the AR floating-track/arena fix that stopped the smoke
 	// freeze (real-world scale here, so scale stays 1, only emitMultiplier
 	// is cut) — separate from the player's own full-strength `particles`
 	// so AI stays a light background effect rather than competing with it.
 	const aiParticles = new SmokeTrails( scene, highway ? 0.35 * HW_VEHICLE_SCALE : 1, highway ? 0.05 : 0.15 );
-	const driftMarks = new DriftMarks( scene, mapParam );
+	const driftMarks = new DriftMarks( scene, city ? 'city-v1' : mapParam, 1, city ? 9 : Infinity );
 
 	const audio = new GameAudio();
 	audio.init( cam.camera, vehicleGroup );
@@ -5699,8 +5741,22 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 	const touchState = setupTouchUI( vehicleLights );
 	setupFullscreenToggle();
 	setupMusicToggle();
-	const speedometer = setupSpeedometer( highway || freeRoam );
+	const speedometer = setupSpeedometer( highway || freeRoam || city );
 	const navCompass = highway ? setupNavCompass() : null;
+	if ( city && new URLSearchParams( location.search ).get( 'debug' ) === 'city' ) {
+		window.__hajwalaCity = Object.freeze( {
+			snapshot: () => ( {
+				...cityState.group.userData,
+				vehicleKey,
+				position: vehicle.spherePos.toArray(),
+				linearSpeed: vehicle.linearSpeed,
+				frame: renderer.info.render.frame,
+				calls: renderer.info.render.calls,
+				triangles: renderer.info.render.triangles,
+				camera: cam.camera.position.toArray(),
+			} ),
+		} );
+	}
 
 	const _forward = new THREE.Vector3();
 	const _camLead = new THREE.Vector3();
@@ -5782,7 +5838,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			// — see Controls.update()'s own comment on why the touch
 			// joystick's "up" needs to match whichever angle the current
 			// camera treats as "ahead".
-			const rawInput = controls.update( highway ? Math.PI : undefined );
+			const rawInput = controls.update( highway || city ? Math.PI : undefined );
 			const input = racing ? rawInput : { x: 0, z: 0, touchActive: false };
 
 			updateVehicleAndFx( dt, input, ctx );
@@ -5850,7 +5906,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 						// near the top of init() (sessionStorage key 'hwRestartRace').
 						try {
 
-							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, highway, vehicleKey, flagImage } ) );
+							sessionStorage.setItem( 'hwRestartRace', JSON.stringify( { customText, freeRoam, highway, city, vehicleKey, flagImage } ) );
 
 						} catch ( e ) { /* ignore — falls back to showing the menu again */ }
 						location.reload();
@@ -5883,6 +5939,7 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 			const mv = vehicle.modelVelocity;
 			_camLead.set( 0, 0, 1 ).applyQuaternion( vehicle.container.quaternion ).multiplyScalar( Math.sqrt( mv.x * mv.x + mv.z * mv.z ) );
 			cam.update( dt, vehicle.spherePos, _camLead );
+			if ( cityState ) cityState.resolveCamera( cam.camera, vehicle.spherePos );
 
 			renderer.render( scene, cam.camera );
 
@@ -8218,7 +8275,7 @@ async function init() {
 
 		try {
 
-			activeMode = startNormalMode( { customCells, spawn, mapParam, ...restartData } );
+			activeMode = await startWebMode( { customCells, spawn, mapParam, ...restartData } );
 			return;
 
 		} catch ( e ) {
@@ -8250,6 +8307,17 @@ async function init() {
 		sessionStorage.removeItem( 'hwReturnToArMenu' );
 	} catch ( e ) { /* ignore */ }
 
+	const entryParams = new URLSearchParams( location.search );
+	if ( entryParams.get( 'mode' ) === 'city' ) {
+		const requestedCar = entryParams.get( 'vehicle' );
+		const cityVehicle = VEHICLE_OPTIONS.some( option => option.key === requestedCar ) ? requestedCar : 'vehicle-camry';
+		activeMode = await startWebMode( {
+			customCells, spawn, mapParam, customText: '', city: true,
+			vehicleKey: cityVehicle, flagImage: null,
+		} );
+		return;
+	}
+
 	const arAvailable = await ARManager.isSupported();
 
 	if ( returnToArMenu && arAvailable ) {
@@ -8278,7 +8346,7 @@ async function init() {
 	// eslint-disable-next-line no-constant-condition
 	while ( true ) {
 
-		const { choice, customText, freeRoam, highway, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
+		const { choice, customText, freeRoam, highway, city, vehicleKey, flagImage, sessionPromise } = await createModeMenu( { arAvailable } );
 
 		if ( choice === 'ar' ) {
 
@@ -8308,7 +8376,7 @@ async function init() {
 
 			try {
 
-				activeMode = startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, highway, vehicleKey, flagImage } );
+				activeMode = await startWebMode( { customCells, spawn, mapParam, customText, freeRoam, highway, city, vehicleKey, flagImage } );
 				break;
 
 			} catch ( e ) {
