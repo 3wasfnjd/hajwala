@@ -1,7 +1,5 @@
 name: City prototype checks
 on:
-  push:
-    branches: ["codex/hajwala-city"]
   pull_request:
     branches: ["master"]
     paths: ["js/**", "index.html", ".github/tests/city-smoke.mjs", ".github/workflows/city-check.yml"]

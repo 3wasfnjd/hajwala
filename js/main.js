@@ -8310,7 +8310,7 @@ async function init() {
 	const entryParams = new URLSearchParams( location.search );
 	if ( entryParams.get( 'mode' ) === 'city' ) {
 		const requestedCar = entryParams.get( 'vehicle' );
-		const cityVehicle = VEHICLE_OPTIONS.some( option => option.key === requestedCar ) ? requestedCar : 'vehicle-camry';
+		const cityVehicle = modelNames.includes( requestedCar ) && requestedCar.startsWith( 'vehicle-' ) ? requestedCar : 'vehicle-camry';
 		activeMode = await startWebMode( {
 			customCells, spawn, mapParam, customText: '', city: true,
 			vehicleKey: cityVehicle, flagImage: null,

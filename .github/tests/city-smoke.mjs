@@ -60,6 +60,8 @@ try {
 	assert.ok( moving.position[ 1 ] > 0.25 && moving.position[ 1 ] < 1, 'Car must stay on ground while driving' );
 	await page.screenshot( { path: 'artifacts/city-driving.png' } );
 	reports.push( { device: 'desktop', start, moving } );
+	const preview = await page.screenshot( { type: 'jpeg', quality: 65 } );
+	await page.close();
 
 	// The deep link selects an existing Hajwala car and bypasses mode menus.
 	const mobile = await browser.newPage( { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true } );
@@ -115,7 +117,6 @@ try {
 	console.log( 'CITY_CHECK_RESULT ' + JSON.stringify( reports ) );
 	await writeFile( 'artifacts/city-check.json', JSON.stringify( { reports, errors }, null, 2 ) );
 	// A small screenshot in the job output permits visual review without a local runtime.
-	const preview = await page.screenshot( { type: 'jpeg', quality: 65 } );
 	const encoded = preview.toString( 'base64' );
 	for ( let i = 0; i < encoded.length; i += 8000 ) console.log( 'CITY_PREVIEW_CHUNK ' + String( i / 8000 ).padStart( 4, '0' ) + ' ' + encoded.slice( i, i + 8000 ) );
 } catch ( error ) {
