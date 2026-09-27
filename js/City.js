@@ -42,7 +42,7 @@ export function buildCityWorld( scene, world ) {
 	material( 'windowAmber', 0xf7c577, true );
 	material( 'windowTeal', 0x67d6c4, true );
 	for ( let i = 0; i < neonColors.length; i ++ ) {
-		material( 'neon' + i, new THREE.Color( neonColors[ i ] ).multiplyScalar( 4.5 ), true );
+		material( 'neon' + i, new THREE.Color( neonColors[ i ] ).multiplyScalar( 2.8 ), true );
 	}
 	materials.get( 'windowTeal' ).color.multiplyScalar( 1.35 );
 	materials.get( 'windowAmber' ).color.multiplyScalar( 1.55 );
@@ -89,7 +89,7 @@ export function buildCityWorld( scene, world ) {
 	for ( let i = 0; i < labels.length; i ++ ) {
 		material( 'sign' + i, 0xffffff, true, {
 			map: labelTexture( labels[ i ], [ '#43dcff', '#ff56aa', '#ffca68', '#64e9dd' ][ i ] ),
-			color: new THREE.Color( 3.4, 3.4, 3.4 ),
+			color: new THREE.Color( 2.1, 2.1, 2.1 ),
 		} );
 	}
 
@@ -108,7 +108,7 @@ export function buildCityWorld( scene, world ) {
 	asphaltMap.wrapS = asphaltMap.wrapT = THREE.RepeatWrapping;
 	asphaltMap.repeat.set( 70, 70 );
 	const roadMaterial = new THREE.MeshStandardMaterial( {
-		map: asphaltMap, color: 0x63727f, roughness: 0.25, metalness: 0.16,
+		map: asphaltMap, color: 0x63727f, roughness: 0.38, metalness: 0.10,
 	} );
 	const ground = new THREE.Mesh( new THREE.PlaneGeometry( 260, 260 ), roadMaterial );
 	ground.name = 'city-asphalt';
@@ -121,7 +121,8 @@ export function buildCityWorld( scene, world ) {
 	let buildingCount = 0;
 	function building( x, z, width, depth, height, style ) {
 		const key = 'walls' + ( style % 4 );
-		const neon = 'neon' + style % neonColors.length;
+		const neonStyle = ( style + ( x > 0 ? 1 : 0 ) ) % neonColors.length;
+		const neon = 'neon' + neonStyle;
 		block( key, x, height / 2, z, width, height, depth );
 		block( 'roof', x, height + 0.18, z, width + 0.35, 0.36, depth + 0.35 );
 		block( 'concrete', x, 0.45, z, width + 0.2, 0.9, depth + 0.2 );
@@ -155,8 +156,8 @@ export function buildCityWorld( scene, world ) {
 		}
 		block( neon, x + facing * width / 2, height + 0.39, z, 0.10, 0.10, depth );
 		emitters.push( { x: x + facing * ( width / 2 + 1.1 ), y: 3.1, z,
-			color: neonColors[ style % neonColors.length ], intensity: 150 } );
-		block( 'sign' + style % labels.length, x + facing * ( width / 2 + 0.12 ), 3.15, z,
+			color: neonColors[ neonStyle ], intensity: 90 } );
+		block( 'sign' + ( style + ( x > 0 ? 1 : 0 ) ) % labels.length, x + facing * ( width / 2 + 0.12 ), 3.15, z,
 			Math.min( 6.5, depth * 0.75 ), 1.05, 0.07, facing * Math.PI / 2 );
 		block( 'metal', x + width * 0.22, height + 0.8, z - depth * 0.2, 2, 1.2, 1.7 );
 		buildingCount ++;
@@ -214,7 +215,7 @@ export function buildCityWorld( scene, world ) {
 				const z = axis ? side * 14.8 : p;
 				block( 'metal', x, 3, z, 0.14, 6, 0.14 );
 				block( 'neon2', x, 6, z, 1.5, 0.1, 0.7 );
-				emitters.push( { x, y: 5.7, z, color: 0xffd6a0, intensity: 190 } );
+				emitters.push( { x, y: 5.7, z, color: 0xffd6a0, intensity: 90 } );
 				collider( x, z, 0.2, 0.2, 6 );
 			}
 		}

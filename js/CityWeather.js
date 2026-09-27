@@ -131,7 +131,7 @@ export function createCityWeather( group, emitters ) {
 					reflected += texture2D(tDiffuse, uv + vec2(0, blur)).rgb * 0.15;
 					reflected += texture2D(tDiffuse, uv - vec2(0, blur)).rgb * 0.15;
 					float grazing = 1.0 - clamp(normalize(cameraPosition - vWorld).y, 0.0, 1.0);
-					float alpha = (0.19 + puddle * 0.42) * (0.5 + grazing * 0.5);
+					float alpha = (0.08 + puddle * 0.40) * (0.5 + grazing * 0.5);
 					gl_FragColor = vec4(reflected * vec3(0.83, 0.93, 1.0), alpha);
 					#include <tonemapping_fragment>
 					#include <colorspace_fragment>
@@ -185,7 +185,10 @@ export function createCityWeather( group, emitters ) {
 			resize();
 			window.addEventListener( 'resize', resize );
 			status.bloom = true;
-			return dt => composer.render( dt );
+			// Count the whole scene, reflection and postprocessing, rather
+			// than reporting only the final full-screen output triangle.
+			renderer.info.autoReset = false;
+			return dt => { renderer.info.reset(); composer.render( dt ); };
 		},
 		update( dt, position ) {
 			center.copy( position );

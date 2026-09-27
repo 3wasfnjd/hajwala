@@ -5366,8 +5366,8 @@ function startNormalMode( { customCells, spawn, mapParam, customText, freeRoam, 
 		hemiLight.color.setHex( 0xbed7e7 );
 		hemiLight.groundColor.setHex( 0x344438 );
 		hemiLight.intensity = 1.15;
-		bloomPass.strength = 0.65;
-		bloomPass.radius = 0.4;
+		bloomPass.strength = 0.36;
+		bloomPass.radius = 0.32;
 		bloomPass.threshold = 1.0;
 		vehicleSpawn = cityState.spawn;
 		sphereBody = createSphereBody( world, vehicleSpawn.position );
